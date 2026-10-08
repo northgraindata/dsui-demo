@@ -1,0 +1,23 @@
+.env
+
+# Backing stores are containers and volumes, never files in the repository.
+# DuckDB lives here once the local-file adapter lands.
+*.duckdb
+*.duckdb.wal
+/data/
+
+# Python data generator
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# dbt
+/dbt/target/
+/dbt/dbt_packages/
+/dbt/logs/
+
+# Airflow
+/airflow/logs/
+
+.DS_Store

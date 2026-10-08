@@ -1,0 +1,41 @@
+# DSUI configuration for the public self-serve demo.
+#
+# Two rules govern this file, because the instance is open to anyone:
+#
+#   1. Every `ref` is pinned. Nothing floats on `main`. A push to a repository
+#      must never be able to change or break the public demo, so fixing the
+#      demo means bumping a tag deliberately.
+#   2. Every credential is interpolated from the environment. This file is
+#      public; the values it interpolates are fake and disclosed in the README.
+#
+# Note the asymmetry between adapters and plugins: an adapter's `repository`
+# must be a full `git+https://github.com/owner/name` URL, while a plugin's is a
+# bare `owner/name`.
+
+adapters:
+  # Built from source on first start, so a cold boot takes minutes and needs
+  # network access. `/data` is a volume, which keeps the package-manager cache
+  # between restarts.
+  postgresql:
+    source: git
+    repository: git+https://github.com/northgraindata/dsui
+    ref: v0.1.1
+    path: packages/adapter-postgresql
+
+services:
+  # Read-only in practice: `statementTimeout` caps what an anonymous visitor can
+  # ask for, and this account owns nothing it should be able to break.
+  - id: analytics
+    adapter: postgresql
+    name: Analytics warehouse
+    connection:
+      host: postgres
+      port: 5432
+      database: analytics
+      databaseScope: all
+      username: ${POSTGRES_USER}
+      password: ${POSTGRES_PASSWORD}
+      sslMode: disable
+      connectTimeout: 10
+      statementTimeout: 30000
+      applicationName: dsui-demo

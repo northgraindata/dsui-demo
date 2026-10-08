@@ -1,0 +1,70 @@
+# Public self-serve demo stack.
+#
+# Only DSUI is ever published. PostgreSQL, Airflow and MinIO stay on the compose
+# network with no `ports`, so the anonymous internet can reach the product and
+# nothing behind it. Memory and CPU limits are the primary defence against a
+# visitor asking for something expensive.
+#
+# The instance is always-on and never scaled to zero: adapters are compiled on
+# first start, which takes minutes.
+
+name: dsui-demo
+
+services:
+  dsui:
+    image: ghcr.io/northgraindata/dsui:${DSUI_IMAGE_TAG:-v0.1.1}
+    restart: unless-stopped
+    ports:
+      - "${DSUI_PORT:-4192}:4192"
+    environment:
+      DSUI_CONFIG: /etc/dsui/dsui.yaml
+      DSUI_MASTER_KEY: ${DSUI_MASTER_KEY:?set DSUI_MASTER_KEY in .env}
+      DSUI_HOST: 0.0.0.0
+      DSUI_PORT: 4192
+    volumes:
+      - ./dsui.yaml:/etc/dsui/dsui.yaml:ro
+      # A named volume, not a bind mount: the image declares /data owned by its
+      # non-root user, and the volume inherits that. A host bind mount would be
+      # owned by the host user and the server could not write to it.
+      - dsui-data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/dsui", "doctor", "--check-adapters"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      # Adapters are compiled from source on first boot. Without a long grace
+      # period the healthcheck fails during that build and the container
+      # restart-loops before it ever gets a chance to finish.
+      start_period: 600s
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2g
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-dsui}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-analytics}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dsui} -d ${POSTGRES_DB:-analytics}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512m
+
+volumes:
+  dsui-data:
+  postgres-data:

@@ -91,11 +91,39 @@ That plugin is not written yet.
 
 - [x] Compose with DSUI and PostgreSQL, one adapter, resource limits, healthcheck
 - [ ] `demo-auth` two-tier plugin
-- [ ] Data generator and raw schema
+- [x] Data generator and raw schema
 - [ ] dbt project, seeded and built
 - [ ] Airflow with DAGs and backfilled history
 - [ ] MinIO, DuckDB, `code-repository`, monitoring
 - [ ] `demo-guide` tour plugin, reset procedure, landing page CTA
+
+## The dataset
+
+One synthetic e-commerce SaaS feeds the whole demo, so a visitor never sees two
+unrelated worlds. `data-generator` writes it to PostgreSQL, exports CSVs for
+object storage, and produces a local DuckDB file.
+
+The raw tables are deliberately malformed, because cleaning them is the story:
+
+- Timestamps arrive in five formats — ISO, `DD/MM/YYYY`, ISO with `Z`, bare
+  date, and epoch seconds.
+- Money arrives as a number, as `$1,234.56`, as `12.00 EUR`, and with a decimal
+  comma.
+- Status casing is inconsistent across all fourteen visible variants.
+- Around one percent of customers are duplicated, two percent have no email, and
+  a few order items reference orders that do not exist.
+
+Reproducible builds need an anchor, because the wall clock moves the window:
+
+```sh
+docker compose run --rm data-generator python generate.py seed --as-of 2026-01-31T00:00:00
+docker compose run --rm data-generator python generate.py verify
+```
+
+The container seeds on boot and then appends a trickle of activity every five
+minutes, so charts and lineage do not look frozen. Appending is idempotent
+against the seeded dimensions: it reads the existing customers and products
+rather than inventing new ones, so recent rows stay referentially coherent.
 
 ## Known issues
 

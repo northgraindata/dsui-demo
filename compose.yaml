@@ -65,6 +65,28 @@ services:
           cpus: "1.0"
           memory: 512m
 
+  # Seeds the synthetic dataset on first boot, then appends a trickle of recent
+  # activity every five minutes so the demo's charts keep moving. The demo is
+  # more convincing when something is visibly live.
+  data-generator:
+    build:
+      context: ./data-generator
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: >-
+        postgresql://${POSTGRES_USER:-dsui}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-analytics}
+    volumes:
+      - demo-exports:/out
+    depends_on:
+      postgres:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512m
+
 volumes:
   dsui-data:
   postgres-data:
+  demo-exports:

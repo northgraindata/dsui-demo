@@ -63,6 +63,9 @@ RAW_TABLES = (
     "posthog_people",
     "posthog_events",
     "ga4_sessions",
+    "meta_ads_daily",
+    "google_ads_daily",
+    "gsc_daily",
 )
 
 # Tables whose rows come from `sources` and are projected by that module's own
@@ -79,6 +82,9 @@ SOURCE_TABLES = frozenset({
     "posthog_people",
     "posthog_events",
     "ga4_sessions",
+    "meta_ads_daily",
+    "google_ads_daily",
+    "gsc_daily",
 })
 
 COLUMNS = {
@@ -174,6 +180,20 @@ COLUMNS = {
     "ga4_sessions": (
         "session_id", "occurred_at", "country", "device_category", "traffic_source",
         "source_medium", "campaign", "session_number", "engagement_time_msec", "is_bounce",
+    ),
+    "meta_ads_daily": (
+        "date", "campaign_id", "campaign_name", "adset_id", "adset_name",
+        "impressions", "reach", "clicks", "spend", "cpc", "cpm", "ctr",
+        "currency", "actions",
+    ),
+    "google_ads_daily": (
+        "date", "campaign_id", "campaign_name", "impressions", "clicks", "cost_micros",
+        "conversions", "conversions_value", "ctr", "average_cpc", "average_cpm",
+        "all_conversions", "cost_per_conversion", "currency",
+    ),
+    "gsc_daily": (
+        "date", "query", "page", "country", "device", "search_appearance",
+        "clicks", "impressions", "ctr", "position",
     ),
 }
 
@@ -679,6 +699,9 @@ def render(table: str, rows: list[dict], rng: random.Random) -> list[tuple]:
             "posthog_people": lambda rs: sources.posthog_rows("posthog_people", rs),
             "posthog_events": lambda rs: sources.posthog_rows("posthog_events", rs),
             "ga4_sessions": lambda rs: sources.ga4_rows(rs),
+            "meta_ads_daily": sources.meta_rows_to_tuples,
+            "google_ads_daily": sources.google_rows_to_tuples,
+            "gsc_daily": sources.gsc_rows_to_tuples,
         }.get(table)
         if projector is not None:
             return projector(rows)
@@ -839,9 +862,20 @@ def build_full_dataset(seed: int, count_customers: int, count_orders: int,
 
     accounts = sources.build_accounts(rng, count_accounts, now)
     dataset["accounts"] = accounts
-    dataset.update(sources.build_stripe_history(rng, accounts, now))
+
+    # One campaign schedule, shared by acquisition, sessions and signups, so the
+    # sources line up in shape and disagree in number instead of disagreeing
+    # about everything.
+    burst_schedule = sources.build_burst_schedule(rng, now, HISTORY_DAYS)
+    acquisition = sources.build_acquisition(rng, now, HISTORY_DAYS, burst_schedule)
+    daily_index = acquisition.pop("_daily_index")
+
+    dataset.update(acquisition)
+    dataset.update(sources.build_stripe_history(rng, accounts, now, burst_schedule))
     dataset.update(sources.build_posthog(rng, accounts, now))
-    dataset["ga4_sessions"] = sources.build_ga4(rng, accounts, now, HISTORY_DAYS)
+    dataset["ga4_sessions"] = sources.build_ga4(
+        rng, accounts, now, HISTORY_DAYS, daily_index=daily_index
+    )
     return dataset
 
 

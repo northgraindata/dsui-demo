@@ -97,9 +97,69 @@ def check_country_codes() -> list[str]:
     return problems
 
 
+def check_acquisition_smoke() -> list[str]:
+    """Runs the acquisition builders end to end.
+
+    `_pick` returns its value, not a tuple, so indexing or unpacking its result
+    is a bug that only fires when that line runs. Three of those shipped in
+    review: a truncated country code, and twice an unpack of a single string.
+    Calling the builders is cheaper and more direct than trying to spot the
+    pattern statically.
+    """
+    import random
+
+    problems = []
+    moment = datetime.datetime(2026, 1, 31)
+    try:
+        schedule = sources.build_burst_schedule(random.Random(1), moment, 30)
+        result = sources.build_acquisition(random.Random(2), moment, 30, schedule)
+    except Exception as error:  # noqa: BLE001 - the point is to report any failure
+        return [f"build_acquisition raised: {error!r}"]
+
+    for table in ("meta_ads_daily", "google_ads_daily", "gsc_daily"):
+        rows = result.get(table) or []
+        if not rows:
+            problems.append(f"{table}: produced no rows")
+            continue
+        for row in rows:
+            for column, value in row.items():
+                if column.startswith("_"):
+                    continue
+                if value is None or value == "":
+                    problems.append(f"{table}.{column} is empty in a generated row")
+                    break
+            else:
+                continue
+            break
+    return problems
+
+
+def check_ga4_shares_traffic() -> list[str]:
+    """GA4 session volume must follow the acquisition index, not ignore it."""
+    import random
+
+    moment = datetime.datetime(2026, 1, 31)
+    schedule = sources.build_burst_schedule(random.Random(3), moment, 60)
+    result = sources.build_acquisition(random.Random(4), moment, 60, schedule)
+    index = result.pop("_daily_index")
+    peak = max(index, key=lambda day: index[day]["google_search_clicks"])
+    baseline = index[peak]["google_search_clicks"]
+
+    sessions = sources.build_ga4(random.Random(5), [], moment, 60, daily_index=index)
+    on_peak = sum(
+        1 for row in sessions
+        if row["occurred_at"][:10] == peak
+    )
+    flat_days = [day for day in index if index[day]["google_search_clicks"] < baseline]
+    if not flat_days or on_peak == 0:
+        return ["ga4: no sessions landed on the highest-traffic day"]
+    return []
+
+
 def main() -> int:
     problems = (
         check_weighted() + check_unweighted() + check_plans() + check_country_codes()
+        + check_acquisition_smoke() + check_ga4_shares_traffic()
     )
     if problems:
         print("FAIL")
@@ -108,7 +168,7 @@ def main() -> int:
         return 1
     print(
         f"ok: {len(WEIGHTED)} weighted tables, {len(UNWEIGHTED)} unweighted, "
-        f"plans and country codes sample cleanly"
+        f"plans, country codes, acquisition smoke test and GA4 traffic coupling"
     )
     return 0
 

@@ -220,6 +220,67 @@ CREATE TABLE IF NOT EXISTS raw.ga4_sessions (
     is_bounce            text
 );
 
+-- ---------------------------------------------------------------------------
+-- Paid and organic acquisition.
+--
+-- Three report shapes, each with the quirk that makes it recognisable:
+-- Google Ads reports cost in micros, Meta reports `actions` as a nested array
+-- of action-type/value pairs, and Search Console returns keys as an array with
+-- a fractional average position.
+--
+-- These are generated from one acquisition model rather than independently, so
+-- spend drives clicks, clicks drive GA4 sessions, and sessions drive signups.
+-- That is what makes the reconciliation model worth looking at: the sources
+-- agree in shape and disagree in number, the way real ones do.
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS raw.meta_ads_daily (
+    date          text,
+    campaign_id   text,
+    campaign_name text,
+    adset_id      text,
+    adset_name    text,
+    impressions   text,
+    reach         text,
+    clicks        text,
+    spend         text,
+    cpc           text,
+    cpm           text,
+    ctr           text,
+    currency      text,
+    actions       text
+);
+
+CREATE TABLE IF NOT EXISTS raw.google_ads_daily (
+    date                 text,
+    campaign_id          text,
+    campaign_name        text,
+    impressions          text,
+    clicks               text,
+    cost_micros          text,
+    conversions          text,
+    conversions_value    text,
+    ctr                  text,
+    average_cpc          text,
+    average_cpm          text,
+    all_conversions      text,
+    cost_per_conversion  text,
+    currency             text
+);
+
+CREATE TABLE IF NOT EXISTS raw.gsc_daily (
+    date             text,
+    query            text,
+    page             text,
+    country          text,
+    device           text,
+    search_appearance text,
+    clicks           text,
+    impressions      text,
+    ctr              text,
+    position         text
+);
+
 -- The generator truncates before a full reseed, so a rebuild is idempotent.
 CREATE OR REPLACE FUNCTION raw.truncate_all() RETURNS void AS $$
 BEGIN
@@ -228,6 +289,7 @@ BEGIN
              raw.accounts,
              raw.stripe_customers, raw.stripe_subscriptions, raw.stripe_invoices,
              raw.stripe_charges, raw.stripe_refunds, raw.stripe_balance_transactions,
-             raw.posthog_people, raw.posthog_events, raw.ga4_sessions;
+             raw.posthog_people, raw.posthog_events, raw.ga4_sessions,
+             raw.meta_ads_daily, raw.google_ads_daily, raw.gsc_daily;
 END;
 $$ LANGUAGE plpgsql;

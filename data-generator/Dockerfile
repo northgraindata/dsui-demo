@@ -16,9 +16,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY generate.py sources.py schema.sql test_tables.py ./
 
-# Fails the build if a weighted-choice table is malformed, rather than at
-# runtime on whichever code path happens to reach it.
-RUN python test_tables.py
+# Two static gates, because the alternative is finding these at runtime on
+# whichever code path happens to reach them. pyflakes catches the shape
+# errors, test_tables catches the data-shape errors.
+RUN pip install --no-cache-dir pyflakes==3.2.0 \
+    && python -m pyflakes generate.py sources.py test_tables.py \
+    && python test_tables.py
 
 # Seeds once, then serves: each tick appends a shaped amount of activity and
 # sleeps for a jittered interval, so the demo has a pulse rather than a

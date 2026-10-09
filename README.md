@@ -121,11 +121,26 @@ equivalent macros later.
 | Stripe | customers, subscriptions, invoices, charges, refunds, balance transactions | Integer minor units, epoch timestamps, lowercased ISO currency, negative amounts on charges and positive on refunds, `net = amount - fee`, and refunds update `amount_refunded` on the parent charge |
 | PostHog | people, events | `event` / `distinct_id` / `timestamp` envelope, `$set` and `$set_once` person properties, `$current_url`, `$referrer`, `$browser`, `$os`, and `$feature_flag_called` with a variant |
 | GA4 | sessions | Anonymous `session_id`, `source` / `medium` / `campaign`, `engagement_time_msec`, bounce flag |
+| Meta Ads | meta_ads_daily | Spend as a decimal string, and `actions` as the nested action-type/value array a Meta report actually is |
+| Google Ads | google_ads_daily | Cost in `cost_micros`, millionths of the account currency unit |
+| Search Console | gsc_daily | One row per dimension combination with a fractional average `position` between 1 and 100 |
 | Accounts | accounts | The product's own dimension, and the join key the other sources resolve to |
 
 Landed the way the vendors actually hand data over: Stripe as verbatim webhook
 JSON in a `payload` column with only `created_at` promoted, PostHog as an event
 envelope. Nothing is flattened into a convenient shape on the way in.
+
+### One acquisition model, not six random walks
+
+Paid and organic reports drive everything downstream. Spend sets impressions and
+clicks through a per-platform CPC and CTR, clicks set GA4 sessions, and a campaign
+burst lifts spend, sessions and new subscriptions together over a few days. The
+generated correlation between daily ad spend and daily sessions is around 0.8.
+
+That is the point of the whole dataset. Six sources that agreed with each other
+would teach nothing; these agree in shape and disagree in number, the way real
+ones do, and the reconciliation model has something real to explain. A site
+advertising its own demo does not need the sources to reconcile perfectly.
 
 A/B experiments are out. Feature flags stay: one extra property on an event, and
 enough to show which variant an account saw. A real experiment needs assignment
@@ -160,18 +175,25 @@ docker compose run --rm data-generator python generate.py seed --as-of 2026-01-3
 
 ### Checks
 
-`data-generator/test_tables.py` asserts the shape of every weighted-choice table
-and country code, and runs during the image build. Three tables were wrong in the
-first draft, as flat lists and `(source, medium, weight)` triples, and none of
-them failed where they were defined. They failed later, on whichever code path
-happened to reach them.
+Two static gates run during the image build. `pyflakes` catches shape errors.
+`test_tables.py` asserts the shape of every weighted-choice table, that country
+codes are two letters, that the acquisition builders run end to end, and that
+GA4 volume actually follows the acquisition index.
+
+Both exist because those bugs were here. Three weighted-choice tables were
+malformed as flat lists and `(source, medium, weight)` triples. Three separate
+places subscripted or unpacked the result of a helper that already returns a
+value, which produced a truncated country code `"D"` and two unpack errors. None
+of them failed where they were defined; they failed later, on whichever code path
+happened to reach them, which in a generator means a crash or a silent data
+defect that only some seeds ever hit.
 
 ## Status
 
 - [x] Compose with DSUI and PostgreSQL, one adapter, resource limits, healthcheck
 - [ ] `demo-auth` two-tier plugin
 - [x] Data generator: e-commerce, Stripe, PostHog, GA4, accounts
-- [ ] Meta Ads, Google Ads, Search Console daily reports
+- [x] Meta Ads, Google Ads, Search Console daily reports, sharing one acquisition model
 - [ ] Airflow: Postgres to Parquet to dbt to DuckDB, published by atomic rename
 - [ ] dbt project, seeded and built
 - [ ] MinIO, `code-repository`, monitoring

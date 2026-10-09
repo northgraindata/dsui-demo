@@ -154,7 +154,8 @@ def build_accounts(rng: random.Random, count: int, now: datetime) -> list[dict]:
     return accounts
 
 
-def build_stripe_history(rng: random.Random, accounts: list[dict], now: datetime):
+def build_stripe_history(rng: random.Random, accounts: list[dict], now: datetime,
+                         burst_schedule: dict | None = None):
     """Full Stripe history for the seeded accounts.
 
     One customer per account, one subscription per customer, a monthly invoice
@@ -162,10 +163,18 @@ def build_stripe_history(rng: random.Random, accounts: list[dict], now: datetime
     look like one.
     """
     customers, subscriptions, invoices, charges, refunds, balance = [], [], [], [], [], []
+    burst_schedule = burst_schedule or {}
 
     for account in accounts:
         customer_id = f"cus_{rng.getrandbits(48):012x}"
         created = account["created_at"]
+        # A signup follows a campaign push, so acquisition spend and new
+        # subscriptions move together rather than independently.
+        if burst_schedule:
+            for candidate in (created.date() - timedelta(days=1), created.date()):
+                weight = burst_schedule.get(candidate.isoformat(), 1.0)
+                if weight > 1.0 and rng.random() < 0.16 * (weight - 1.0):
+                    created -= timedelta(days=rng.randint(0, 2))
         customers.append({
             "stripe_id": customer_id,
             "created_at": _messy_timestamp(created, rng),
@@ -656,8 +665,32 @@ def posthog_rows(table: str, rows: list[dict]) -> list[tuple]:
 # ---------------------------------------------------------------------------
 
 
+def build_burst_schedule(rng: random.Random, now: datetime,
+                         span_days: int) -> dict[str, float]:
+    """Which days carry a campaign push.
+
+    A demo with uniform traffic has nothing in it. B bursts lift spend and
+    sessions together over a few days, the way a launch or a promo does, which
+    gives the charts a shape worth looking at and gives the reconciliation
+    something to explain.
+    """
+    schedule: dict[str, float] = {}
+    day = now
+    for _ in range(span_days):
+        if rng.random() < 0.06:
+            length = rng.randint(2, 5)
+            peak = rng.uniform(2.1, 4.6)
+            for step in range(length):
+                target = (day - timedelta(days=step)).strftime("%Y-%m-%d")
+                decay = peak * (1 - 0.18 * step)
+                schedule[target] = max(schedule.get(target, 1.0), decay)
+        day -= timedelta(days=1)
+    return schedule
+
+
 def build_ga4(rng: random.Random, accounts: list[dict], now: datetime,
-              span_days: int = HISTORY_SPAN_DAYS, span_minutes: int | None = None) -> list[dict]:
+              span_days: int = HISTORY_SPAN_DAYS, span_minutes: int | None = None,
+              daily_index: dict | None = None) -> list[dict]:
     """GA4 session rows.
 
     Sessions are anonymous and stop at signup: GA4 knows someone arrived, not
@@ -669,6 +702,33 @@ def build_ga4(rng: random.Random, accounts: list[dict], now: datetime,
     """
     sessions = []
     known = sorted({account["created_at"] for account in accounts})
+    if span_minutes is None and daily_index:
+        # One row per click the acquisition model produced, plus a direct and
+        # brand baseline. Sessions are a consequence of the ad reports, not an
+        # independent random walk.
+        for day_key, index in sorted(daily_index.items()):
+            when = datetime.strptime(day_key, "%Y-%m-%d")
+            if when > now:
+                continue
+            for _ in range(rng.randint(1, 2)):
+                # Sessions land close to the click count they came from, plus a
+                # direct and brand baseline that no campaign paid for. A
+                # multiplier much above one produces a site with implausible
+                # traffic, which is the sort of detail a prospect notices.
+                paid = index["google_search_clicks"] + index["meta_clicks"]
+                baseline = rng.uniform(34, 78)
+                total = int(paid * rng.uniform(0.72, 1.12) + index["organic_clicks"]
+                            * rng.uniform(0.85, 1.3) + baseline)
+                if index["weekday"] >= 5:
+                    total = int(total * 0.78)
+                for _ in range(max(1, total)):
+                    occurred = when + timedelta(seconds=rng.randint(0, 86399))
+                    if occurred > now:
+                        break
+                    sessions.append(_ga4_session(rng, occurred, known, now))
+        sessions.sort(key=lambda row: row["occurred_at"])
+        return sessions
+
     if span_minutes is None:
         count = span_days * rng.randint(40, 90)
     else:
@@ -679,41 +739,290 @@ def build_ga4(rng: random.Random, accounts: list[dict], now: datetime,
             if span_minutes is None
             else now - timedelta(seconds=rng.random() * span_minutes * 60)
         )
-        source, medium = _pick(rng, GA4_SOURCES)
-        session_number = rng.choices([1, 2, 3], weights=[62, 24, 14])[0]
-        engagement = rng.choices(
-            [rng.randint(0, 800), rng.randint(800, 20000), rng.randint(20000, 900000)],
-            weights=[46, 38, 16],
-        )[0]
-        converted = rng.random() < (0.021 if session_number == 1 else 0.004)
-        sessions.append({
-            "session_id": f"{rng.getrandbits(64):016x}",
-            "occurred_at": _messy_timestamp(occurred, rng),
-            "country": _pick(rng, CARD_COUNTRIES),
-            "device_category": _pick(rng, [("desktop", 0.58), ("mobile", 0.38),
-                                           ("tablet", 0.04)]),
-            "traffic_source": source,
-            "source_medium": f"{source} / {medium}",
-            "campaign": (
-                f"pmax-{rng.choice(['brand', 'retargeting', 'lookalike', 'spring'])}"
-                if medium == "paid_social" or (source == "google" and medium == "cpc")
-                else "(not set)"
-            ),
-            "session_number": str(session_number),
-            "engagement_time_msec": str(engagement),
-            "is_bounce": "1" if engagement < 800 else "0",
-            "_converted": "1" if converted else "0",
-            "_signup_after": (
-                sorted(known)[rng.randrange(len(sorted(known)))]
-                if converted and known else None
-            ),
-        })
+        sessions.append(_ga4_session(rng, occurred, known, now))
     sessions.sort(key=lambda row: row["occurred_at"])
     return sessions
+
+
+def _ga4_session(rng: random.Random, occurred: datetime, known: list, now: datetime) -> dict:
+    source, medium = _pick(rng, GA4_SOURCES)
+    session_number = rng.choices([1, 2, 3], weights=[62, 24, 14])[0]
+    engagement = rng.choices(
+        [rng.randint(0, 800), rng.randint(800, 20000), rng.randint(20000, 900000)],
+        weights=[46, 38, 16],
+    )[0]
+    converted = rng.random() < (0.021 if session_number == 1 else 0.004)
+    return {
+        "session_id": f"{rng.getrandbits(64):016x}",
+        "occurred_at": _messy_timestamp(occurred, rng),
+        "country": _pick(rng, CARD_COUNTRIES),
+        "device_category": _pick(rng, [("desktop", 0.58), ("mobile", 0.38),
+                                       ("tablet", 0.04)]),
+        "traffic_source": source,
+        "source_medium": f"{source} / {medium}",
+        "campaign": (
+            f"pmax-{rng.choice(['brand', 'retargeting', 'lookalike', 'spring'])}"
+            if medium == "paid_social" or (source == "google" and medium == "cpc")
+            else "(not set)"
+        ),
+        "session_number": str(session_number),
+        "engagement_time_msec": str(engagement),
+        "is_bounce": "1" if engagement < 800 else "0",
+        "_converted": "1" if converted else "0",
+        "_signup_after": (
+            sorted(known)[rng.randrange(len(sorted(known)))]
+            if converted and known else None
+        ),
+    }
 
 
 def ga4_rows(rows: list[dict]) -> list[tuple]:
     return [(r["session_id"], r["occurred_at"], r["country"], r["device_category"],
              r["traffic_source"], r["source_medium"], r["campaign"],
              r["session_number"], r["engagement_time_msec"], r["is_bounce"])
+            for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Acquisition: Meta Ads, Google Ads, Search Console
+# ---------------------------------------------------------------------------
+
+META_CAMPAIGNS = [
+    ("pmax-brand", "Prospecting | Broad | LAL 1%", 0.26),
+    ("pmax-retargeting", "Retargeting | 7d cart", 0.19),
+    ("catalog-sales", "Advantage+ Catalogue", 0.21),
+    ("pmax-spring", "Spring Launch | Video", 0.15),
+    ("retargeting-dynamic", "Dynamic Retargeting", 0.12),
+    ("brand-awareness", "Brand Awareness | Reach", 0.07),
+]
+
+META_ADSETS = [
+    ("Broad 25-54", 0.34), ("Lookalike 1%", 0.22), ("Retarget 14d", 0.18),
+    ("Cart abandoners", 0.14), ("Engaged 30d", 0.12),
+]
+
+GOOGLE_CAMPAIGNS = [
+    ("brand", "Brand | Exact", 0.18),
+    ("nonbrand-search", "Nonbrand | Generic", 0.26),
+    ("competitor", "Competitor | conquest", 0.07),
+    ("pmax", "Performance Max", 0.21),
+    ("youtube", "YouTube | In-stream", 0.12),
+    ("pmax-spring", "Performance Max | Spring", 0.10),
+    ("display", "Display | Remarketing", 0.06),
+]
+
+SEARCH_QUERIES = [
+    "data observability", "data stack tool", "open source data ui",
+    "connect airflow dbt", "data lineage tool", "duckdb dashboard",
+    "internal analytics platform", "data catalog open source",
+    "monitor data pipelines", "sql workspace", "data plugin sdk",
+    "developer data portal", "single pane of glass data",
+    "data stack cost", "self hosted analytics", "synthetic data platform",
+]
+
+SEARCH_PAGES = [
+    ("/", 0.24), ("/pricing", 0.19), ("/product/lineage", 0.14),
+    ("/product/agent", 0.11), ("/docs/quickstart", 0.10),
+    ("/docs/adapter-sdk", 0.08), ("/signup", 0.08), ("/blog/state-of-data", 0.06),
+]
+
+SEARCH_APPEARANCE = [("BLUE_LINK", 0.52), ("SITELINK", 0.18), ("FAQ", 0.09),
+                     ("PROMOTION", 0.05), ("VIDEO", 0.16)]
+
+GSC_DEVICES = [("DESKTOP", 0.54), ("MOBILE", 0.42), ("TABLET", 0.04)]
+
+
+def build_acquisition(rng: random.Random, now: datetime, span_days: int,
+                      burst_schedule: dict):
+    """Meta Ads, Google Ads and Search Console from one acquisition model.
+
+    Spend is the input; impressions, clicks, sessions and signups follow from it
+    through CPC and CTR. Generating the three reports independently would look
+    plausible and reconcile perfectly, which is the opposite of the point.
+
+    Returns the reports plus the per-day traffic index, so GA4 sessions and the
+    subscription timeline inherit the same shape.
+    """
+    meta_rows, google_rows, gsc_rows = [], [], []
+    daily_index: dict[str, dict] = {}
+    meta_currency, google_currency = "EUR", "EUR"
+
+    # Baseline unit economics, so the reports are internally consistent.
+    meta_cpc = rng.uniform(0.42, 0.72)
+    meta_ctr = rng.uniform(0.011, 0.021)
+    google_cpc_search = rng.uniform(1.35, 2.60)
+    google_cpc_pmax = rng.uniform(0.55, 1.05)
+    google_ctr_search = rng.uniform(0.028, 0.055)
+    google_ctr_display = rng.uniform(0.004, 0.011)
+
+    for offset in range(span_days):
+        day = now - timedelta(days=offset)
+        key = day.strftime("%Y-%m-%d")
+        burst = burst_schedule.get(key, 1.0)
+        weekday = 0.86 if day.weekday() >= 5 else 1.0
+        trend = 0.65 + 0.7 * (1 - offset / max(1, span_days))
+        noise = rng.uniform(0.78, 1.28)
+        seasonal = [0.94, 0.88, 1.02, 1.26][(day.month - 1) // 3]
+        scale = trend * weekday * noise * seasonal * burst
+
+        meta_spend = 180.0 * scale
+        meta_clicks = int(meta_spend / meta_cpc)
+
+        google_spend = 240.0 * scale
+        google_search_share = rng.uniform(0.55, 0.7)
+        google_search_clicks = int(
+            (google_spend * google_search_share) / google_cpc_search
+        )
+        google_rest_spend = google_spend * (1 - google_search_share)
+        google_rest_clicks = int(google_rest_spend / google_cpc_pmax)
+
+        organic_clicks = int(38.0 * scale)
+
+        daily_index[key] = {
+            "meta_clicks": meta_clicks,
+            "google_search_clicks": google_search_clicks,
+            "google_rest_clicks": google_rest_clicks,
+            "organic_clicks": organic_clicks,
+            "meta_spend": meta_spend,
+            "google_spend": google_spend,
+            "burst": burst,
+            "weekday": day.weekday(),
+        }
+
+        for name, adset_label, share in META_CAMPAIGNS:
+            # A campaign that is not running spends nothing, the way a paused one
+            # reports a row of zeros rather than no row at all.
+            if rng.random() < 0.08:
+                continue
+            spend = meta_spend * share * rng.uniform(0.85, 1.15)
+            clicks = int(spend / meta_cpc)
+            impressions = int(clicks / meta_ctr)
+            reach = int(impressions * rng.uniform(0.55, 0.78))
+            adset_name = rng.choice(META_ADSETS)[0]
+            conversions = {
+                "purchase": round(clicks * rng.uniform(0.012, 0.031), 2),
+                "lead": round(clicks * rng.uniform(0.004, 0.014), 2),
+                "add_to_cart": round(clicks * rng.uniform(0.02, 0.06), 2),
+            }
+            meta_rows.append({
+                "date": key,
+                "campaign_id": str(rng.getrandbits(40)),
+                "campaign_name": name,
+                "adset_id": str(rng.getrandbits(40)),
+                "adset_name": adset_name,
+                "impressions": str(impressions),
+                "reach": str(reach),
+                "clicks": str(clicks),
+                # Meta reports spend as a decimal string, not a number.
+                "spend": f"{spend:.2f}",
+                "cpc": f"{spend / clicks:.2f}" if clicks else "0.00",
+                "cpm": f"{spend / impressions * 1000:.2f}" if impressions else "0.00",
+                "ctr": f"{clicks / impressions:.4f}" if impressions else "0.0000",
+                "currency": meta_currency,
+                # The nested action array is what a Meta report actually is.
+                "actions": _json([
+                    {"action_type": "purchase", "value": str(conversions["purchase"])},
+                    {"action_type": "lead", "value": str(conversions["lead"])},
+                    {"action_type": "add_to_cart",
+                     "value": str(conversions["add_to_cart"])},
+                ]),
+                "_adset_label": adset_label,
+            })
+
+        for name, _label, share in GOOGLE_CAMPAIGNS:
+            if rng.random() < 0.06:
+                continue
+            if name in ("pmax", "pmax-spring"):
+                spend = google_rest_spend * share * rng.uniform(0.8, 1.2)
+                clicks = int(spend / google_cpc_pmax)
+                impressions = int(clicks / google_ctr_display * 1.4)
+            elif name == "display":
+                spend = google_rest_spend * share * rng.uniform(0.8, 1.2)
+                clicks = int(spend / google_cpc_pmax)
+                impressions = int(clicks / google_ctr_display)
+            else:
+                spend = google_spend * share * rng.uniform(0.85, 1.15)
+                clicks = int(spend / google_cpc_search)
+                impressions = int(clicks / google_ctr_search)
+            conversions = round(clicks * rng.uniform(0.021, 0.048), 2)
+            value = round(conversions * rng.uniform(80, 260), 2)
+            all_conversions = round(conversions * rng.uniform(1.05, 1.4), 2)
+            # Cost is in micros: millionths of the account currency unit.
+            micros = int(round(spend * 1_000_000))
+            google_rows.append({
+                "date": key,
+                "campaign_id": str(rng.getrandbits(40)),
+                "campaign_name": name,
+                "impressions": str(impressions),
+                "clicks": str(clicks),
+                "cost_micros": str(micros),
+                "conversions": str(conversions),
+                "conversions_value": f"{value:.2f}",
+                "ctr": f"{clicks / impressions:.4f}" if impressions else "0.0000",
+                "average_cpc": f"{spend / clicks:.2f}" if clicks else "0.00",
+                "average_cpm": f"{spend / impressions * 1000:.2f}" if impressions else "0.00",
+                "all_conversions": str(all_conversions),
+                "cost_per_conversion": f"{spend / conversions:.2f}" if conversions else "0.00",
+                "currency": google_currency,
+                "_micros": micros,
+            })
+
+        # Search Console returns one row per dimension combination, keyed by an
+        # array, and position is a fractional average over the whole range.
+        remaining = organic_clicks
+        queries = rng.sample(SEARCH_QUERIES, k=min(len(SEARCH_QUERIES),
+                                                    rng.randint(9, 16)))
+        weights = [rng.uniform(0.4, 2.6) for _ in queries]
+        total_weight = sum(weights)
+        for index, query in enumerate(queries):
+            is_last = index == len(queries) - 1
+            clicks = remaining if is_last else int(organic_clicks * weights[index] / total_weight)
+            remaining -= clicks
+            if clicks <= 0:
+                continue
+            # Click position decides impressions: rank one gets far more of them.
+            position = min(60.0, max(1.05, rng.lognormvariate(1.7, 0.52)))
+            impressions = int(clicks / rng.uniform(0.04, 0.26))
+            page = _pick(rng, SEARCH_PAGES)
+            gsc_rows.append({
+                "date": key,
+                "query": query,
+                "page": page,
+                "country": _pick(rng, CARD_COUNTRIES),
+                "device": _pick(rng, GSC_DEVICES),
+                "search_appearance": _pick(rng, SEARCH_APPEARANCE),
+                "clicks": str(clicks),
+                "impressions": str(impressions),
+                "ctr": f"{clicks / impressions:.3f}" if impressions else "0.000",
+                "position": f"{position:.2f}",
+                "_keys": [query, page],
+            })
+
+    return {
+        "meta_ads_daily": meta_rows,
+        "google_ads_daily": google_rows,
+        "gsc_daily": gsc_rows,
+        "_daily_index": daily_index,
+    }
+
+
+def meta_rows_to_tuples(rows: list[dict]) -> list[tuple]:
+    return [(r["date"], r["campaign_id"], r["campaign_name"], r["adset_id"],
+             r["adset_name"], r["impressions"], r["reach"], r["clicks"], r["spend"],
+             r["cpc"], r["cpm"], r["ctr"], r["currency"], r["actions"])
+            for r in rows]
+
+
+def google_rows_to_tuples(rows: list[dict]) -> list[tuple]:
+    return [(r["date"], r["campaign_id"], r["campaign_name"], r["impressions"],
+             r["clicks"], r["cost_micros"], r["conversions"], r["conversions_value"],
+             r["ctr"], r["average_cpc"], r["average_cpm"], r["all_conversions"],
+             r["cost_per_conversion"], r["currency"])
+            for r in rows]
+
+
+def gsc_rows_to_tuples(rows: list[dict]) -> list[tuple]:
+    return [(r["date"], r["query"], r["page"], r["country"], r["device"],
+             r["search_appearance"], r["clicks"], r["impressions"], r["ctr"],
+             r["position"])
             for r in rows]

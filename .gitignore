@@ -16,6 +16,9 @@ __pycache__/
 venv/
 
 # dbt
+# .user.yml holds an anonymous dbt user id written on first invocation. It is per
+# machine and means nothing to anyone else.
+/dbt/.user.yml
 /dbt/target/
 /dbt/dbt_packages/
 /dbt/logs/

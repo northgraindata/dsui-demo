@@ -72,21 +72,42 @@ Two details in `dsui.yaml` that are easy to get wrong:
 ├── data-generator/       # Python: seeds and serves the synthetic dataset
 ├── dbt/                  # transformation project
 ├── airflow/dags/         # orchestration
+├── airflow/               # orchestration: extract, dbt, publish
 ├── plugins/
-│   ├── demo-auth/        # anonymous operator, secret-holder owner
-│   └── demo-guide/       # guided tour
+│   └── demo-auth/        # anonymous operator, secret-holder owner
 └── scripts/
     └── reset.sh          # reseed the dataset
 ```
 
 ## Access
 
-Anonymous visitors get role `operator`: they can browse everything and run
-actions, but not create or delete services and not change configuration, because
-`manage` is not in the role's grants.
+OSS DSUI has no identity provider. With no authentication plugin installed the
+server assigns `localPrincipalMiddleware()`, which is `owner` to every request —
+correct for the single-operator install OSS targets, and completely wrong for an
+instance on the public internet.
 
-`demo-auth` adds a second tier — presenting `DEMO_ADMIN_SECRET` grants `owner`.
-That plugin is not written yet.
+`plugins/demo-auth` supplies the missing half, because identity is a plugin
+concern and here nobody signs in:
+
+| Visitor | Role | Can |
+| --- | --- | --- |
+| anonymous | `operator` | browse everything, run queries, trigger DAGs and dbt |
+| anonymous, `allowExecution: false` | `viewer` | read only |
+| presents `DEMO_ADMIN_SECRET` as the `x-demo-admin` header or the `dsui_demo_admin` cookie | `owner` | everything, including service management |
+
+`operator` withholds `manage`, so a stranger cannot create or delete a service
+or change configuration. Those grants are a hard ceiling in the host's
+`auth.ts`, so no plugin can widen them back. The secret is compared in constant
+time after hashing, and an unset secret matches nothing.
+
+The plugin declares `security: true` and is configured `critical: true`, so the
+host refuses to install it rather than starting the server without it. Failing
+closed is the point: the alternative is silently serving the demo as `owner` to
+everyone.
+
+```sh
+cd plugins/demo-auth && bun test && bun run typecheck
+```
 
 ## The dataset
 
@@ -230,11 +251,11 @@ drop schemas it no longer manages and a reused file accumulates stale duplicates
 ## Status
 
 - [x] Compose with DSUI and PostgreSQL, one adapter, resource limits, healthcheck
-- [ ] `demo-auth` two-tier plugin
+- [x] `demo-auth` two-tier plugin
 - [x] Data generator: e-commerce, Stripe, PostHog, GA4, accounts
 - [x] Meta Ads, Google Ads, Search Console daily reports, sharing one acquisition model
 - [x] dbt project: staging, marts, reconciliation
-- [ ] Airflow: Postgres to Parquet to dbt to DuckDB, published by atomic rename
+- [x] Airflow: Postgres to Parquet to dbt to DuckDB, published by atomic rename
 - [ ] MinIO, `code-repository`, monitoring
 - [ ] `demo-guide` tour plugin, landing page CTA
 

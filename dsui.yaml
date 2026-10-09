@@ -22,6 +22,23 @@ adapters:
     ref: v0.1.1
     path: packages/adapter-postgresql
 
+plugins:
+  # Anonymous visitors get `operator`, which allows running queries and DAG
+  # triggers but withholds `manage`. Without this plugin the server falls back to
+  # `localPrincipalMiddleware()`, which is `owner` to every request on the
+  # internet.
+  #
+  # `critical: true` is required: the host refuses to install an authentication
+  # plugin that is not critical, so a failure here stops the server rather than
+  # silently opening the demo up.
+  demo-auth:
+    source: local
+    path: /plugins/demo-auth
+    critical: true
+    config:
+      adminSecret: ${DEMO_ADMIN_SECRET}
+      allowExecution: true
+
 services:
   # Read-only in practice: `statementTimeout` caps what an anonymous visitor can
   # ask for, and this account owns nothing it should be able to break.

@@ -1,7 +1,10 @@
 .env
 
+# Symlinks into a sibling checkout, used to run the plugin's tests and typecheck
+# without a package manager. Never committed.
+node_modules/
+
 # Backing stores are containers and volumes, never files in the repository.
-# DuckDB lives here once the local-file adapter lands.
 *.duckdb
 *.duckdb.wal
 /data/

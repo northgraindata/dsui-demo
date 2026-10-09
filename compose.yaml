@@ -19,10 +19,14 @@ services:
     environment:
       DSUI_CONFIG: /etc/dsui/dsui.yaml
       DSUI_MASTER_KEY: ${DSUI_MASTER_KEY:?set DSUI_MASTER_KEY in .env}
+      DEMO_ADMIN_SECRET: ${DEMO_ADMIN_SECRET:?set DEMO_ADMIN_SECRET in .env}
       DSUI_HOST: 0.0.0.0
       DSUI_PORT: 4192
     volumes:
       - ./dsui.yaml:/etc/dsui/dsui.yaml:ro
+      # Built from source on first start, like the adapters, so the plugin source
+      # lives in the repository rather than in an image.
+      - ./plugins:/plugins:ro
       # A named volume, not a bind mount: the image declares /data owned by its
       # non-root user, and the volume inherits that. A host bind mount would be
       # owned by the host user and the server could not write to it.
@@ -54,6 +58,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-analytics}
     volumes:
       - postgres-data:/var/lib/postgresql/data
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dsui} -d ${POSTGRES_DB:-analytics}"]
       interval: 10s
@@ -64,6 +69,40 @@ services:
         limits:
           cpus: "1.0"
           memory: 512m
+
+  # Orchestrates extract, dbt and publish. Airflow's metadata lives in its own
+  # database on the same server so a migration cannot touch demo data, and it is
+  # never published: only DSUI is.
+  airflow:
+    build:
+      context: ./airflow
+    restart: unless-stopped
+    environment:
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: >-
+        postgresql+psycopg2://${AIRFLOW_DB_USER:-airflow}:${AIRFLOW_DB_PASSWORD:-dsui-demo-airflow}@postgres:5432/airflow
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY:?set AIRFLOW_FERNET_KEY in .env}
+      AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "True"
+      DATABASE_URL: >-
+        postgresql://${POSTGRES_USER:-dsui}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-analytics}
+    volumes:
+      - ./airflow/dags:/airflow/dags
+      - ./dbt:/dbt
+      - demo-exports:/out
+      - airflow-logs:/airflow/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "airflow", "version"]
+      interval: 60s
+      timeout: 15s
+      retries: 5
+      start_period: 120s
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2g
 
   # The transformation layer. Runs as a one-shot job rather than a service:
   # DuckDB allows one writing process, so a long-lived dbt container would hold
@@ -123,3 +162,4 @@ volumes:
   postgres-data:
   demo-exports:
   dbt-target:
+  airflow-logs:

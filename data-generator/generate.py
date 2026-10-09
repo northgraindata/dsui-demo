@@ -30,11 +30,14 @@ import json
 import os
 import random
 import sys
+import time
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-import duckdb
 import psycopg
+
+import sources
 
 HISTORY_DAYS = 540
 SEED = 20240817
@@ -50,7 +53,33 @@ RAW_TABLES = (
     "payments",
     "refunds",
     "events",
+    "accounts",
+    "stripe_customers",
+    "stripe_subscriptions",
+    "stripe_invoices",
+    "stripe_charges",
+    "stripe_refunds",
+    "stripe_balance_transactions",
+    "posthog_people",
+    "posthog_events",
+    "ga4_sessions",
 )
+
+# Tables whose rows come from `sources` and are projected by that module's own
+# `*_rows` helper, because they carry vendor payload columns the generic
+# renderer does not model.
+SOURCE_TABLES = frozenset({
+    "accounts",
+    "stripe_customers",
+    "stripe_subscriptions",
+    "stripe_invoices",
+    "stripe_charges",
+    "stripe_refunds",
+    "stripe_balance_transactions",
+    "posthog_people",
+    "posthog_events",
+    "ga4_sessions",
+})
 
 COLUMNS = {
     "customers": (
@@ -110,6 +139,41 @@ COLUMNS = {
         "name",
         "occurred_at",
         "properties",
+    ),
+    "accounts": (
+        "account_id",
+        "name",
+        "plan",
+        "seats",
+        "country",
+        "created_at",
+        "status",
+        "mrr",
+        "trial_ends_at",
+        "churned_at",
+    ),
+    "stripe_customers": ("stripe_id", "created_at", "payload"),
+    "stripe_subscriptions": (
+        "stripe_id", "customer_id", "status", "created_at", "current_period_end", "payload",
+    ),
+    "stripe_invoices": (
+        "stripe_id", "customer_id", "subscription_id", "status", "created_at", "payload",
+    ),
+    "stripe_charges": (
+        "charge_id", "customer_id", "status", "currency", "amount", "created_at", "payload",
+    ),
+    "stripe_refunds": ("refund_id", "charge_id", "created_at", "amount", "payload"),
+    "stripe_balance_transactions": (
+        "txn_id", "charge_id", "type", "created_at", "amount", "fee", "net", "payload",
+    ),
+    "posthog_people": ("distinct_id", "created_at", "properties"),
+    "posthog_events": (
+        "event_id", "event", "distinct_id", "occurred_at",
+        "current_url", "referrer", "browser", "os", "properties",
+    ),
+    "ga4_sessions": (
+        "session_id", "occurred_at", "country", "device_category", "traffic_source",
+        "source_medium", "campaign", "session_number", "engagement_time_msec", "is_bounce",
     ),
 }
 
@@ -185,6 +249,16 @@ LAST_NAMES = [
 ]
 
 
+def utcnow() -> datetime:
+    """Naive UTC, everywhere.
+
+    The generator mixes timestamps it reads from the wall clock with ones it
+    generates, and comparing an aware datetime to a naive one raises rather
+    than guessing. So there is exactly one clock and it is naive.
+    """
+    return datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0)
+
+
 def weighted(rng: random.Random, options: list[tuple]) -> object:
     """Picks one entry from ``(value, weight)`` pairs."""
     total = sum(weight for _, weight in options)
@@ -243,6 +317,31 @@ def messy_integer(value: int, rng: random.Random) -> str:
     if rng.random() < 0.03:
         return f" {value} "
     return str(value)
+
+
+def parse_timestamp(value: str | None) -> datetime | None:
+    """Recovers a datetime from a raw timestamp string.
+
+    The counterpart to `messy_timestamp`. Any reader of the raw tables needs
+    this, which is why dbt gets an equivalent macro later: the generator writes
+    the mess on purpose and then has to read its own writing back.
+
+    `DD/MM/YYYY` is parsed day-first, matching what `messy_timestamp` emits.
+    """
+    if not value:
+        return None
+    text = value.strip()
+    if text.isdigit():
+        return datetime.fromtimestamp(int(text), timezone.utc).replace(tzinfo=None)
+    for pattern in ("%Y-%m-%d %H:%M:%S", "%d/%m/%Y %H:%M", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(text, pattern)
+        except ValueError:
+            continue
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).replace(tzinfo=None)
+    except ValueError:
+        return None
 
 
 def parse_money(value: str | None) -> float:
@@ -344,10 +443,12 @@ def build_dataset(seed: int, customers: int, orders: int, now: datetime):
 
     # About one percent of customers arrive twice, as a near-duplicate row.
     duplicates = []
-    for row in rng.sample(customer_rows, k=max(1, len(customer_rows) // 100)):
-        twin = dict(row)
-        twin["customer_id"] = f"{row['customer_id']}-DUP"
-        duplicates.append(twin)
+    twin_count = min(len(customer_rows), len(customer_rows) // 100)
+    if twin_count:
+        for row in rng.sample(customer_rows, k=twin_count):
+            twin = dict(row)
+            twin["customer_id"] = f"{row['customer_id']}-DUP"
+            duplicates.append(twin)
 
     subscriptions = []
     for row in customer_rows:
@@ -448,9 +549,10 @@ def build_dataset(seed: int, customers: int, orders: int, now: datetime):
 
     # A handful of line items point at orders that were never written. Joining
     # them is the first thing a staging model has to survive.
-    orphans = rng.sample(item_rows, k=max(1, len(item_rows) // 200))
-    for item in orphans:
-        item["order_id"] = f"ORD-{rng.randint(1000000, 9999999)}"
+    orphan_count = min(len(item_rows), len(item_rows) // 200)
+    if orphan_count:
+        for item in rng.sample(item_rows, k=orphan_count):
+            item["order_id"] = f"ORD-{rng.randint(1000000, 9999999)}"
 
     event_rows = []
     for row in customer_rows:
@@ -559,7 +661,29 @@ def recent_activity(seed: int, count: int, now: datetime):
 
 
 def render(table: str, rows: list[dict], rng: random.Random) -> list[tuple]:
-    """Turns generated rows into text-typed tuples, mess included."""
+    """Turns generated rows into text-typed tuples, mess included.
+
+    Vendor tables are projected by their own module, which knows the columns
+    those payloads actually have.
+    """
+    if table in SOURCE_TABLES:
+        projector = {
+            "accounts": lambda rs: [
+                (r["account_id"], r["name"], r["plan"], messy_integer(r["seats"], rng),
+                 r["country"], messy_timestamp(r["created_at"], rng),
+                 messy_status(r["status"], rng), messy_money(r["mrr"], rng),
+                 messy_timestamp(r["trial_ends_at"], rng) if r["trial_ends_at"] else None,
+                 messy_timestamp(r["churned_at"], rng) if r["churned_at"] else None)
+                for r in rs
+            ],
+            "posthog_people": lambda rs: sources.posthog_rows("posthog_people", rs),
+            "posthog_events": lambda rs: sources.posthog_rows("posthog_events", rs),
+            "ga4_sessions": lambda rs: sources.ga4_rows(rs),
+        }.get(table)
+        if projector is not None:
+            return projector(rows)
+        return sources.stripe_rows(table, rows)
+
     rendered = []
     for row in rows:
         if table == "customers":
@@ -628,55 +752,113 @@ def write_postgres(connection, tables: dict[str, list[dict]], rng: random.Random
 
 
 def write_exports(tables: dict[str, list[dict]]) -> None:
-    """Writes CSVs for object storage and a DuckDB file for the local-file adapter."""
+    """Writes the landing zone: CSV for object storage, Parquet for dbt.
+
+    The generator deliberately does not produce a `.duckdb` file. DuckDB allows
+    one writing process, so a generator that kept a handle on it would lock out
+    every reader, including the very dbt run the landing zone exists to feed.
+    DuckDB is dbt's engine and its output, not the generator's.
+
+    Each file is written to a temporary name and renamed into place, so a reader
+    never observes a half-written file and needs no lock.
+    """
     ENVIRONMENT.mkdir(parents=True, exist_ok=True)
     rng = random.Random(SEED)
+    written = 0
 
     for table in RAW_TABLES:
         rows = tables.get(table)
         if not rows:
             continue
-        path = ENVIRONMENT / f"{table}.csv"
-        with path.open("w", encoding="utf-8") as handle:
+        rendered = render(table, rows, rng)
+
+        csv_path = ENVIRONMENT / f"{table}.csv"
+        with _atomic(csv_path) as handle:
             handle.write(",".join(COLUMNS[table]) + "\n")
-            for row in render(table, rows, rng):
+            for row in rendered:
                 values = [
                     "" if value is None else
                     str(value).replace("\\", "\\\\").replace(",", "\\,")
                     for value in row
                 ]
                 handle.write(",".join(values) + "\n")
-    print(f"  csv: {ENVIRONMENT}")
 
-    database = duckdb.connect(str(ENVIRONMENT / "demo.duckdb"))
+        parquet_path = ENVIRONMENT / f"{table}.parquet"
+        write_parquet(table, rendered, parquet_path)
+        written += 1
+
+    print(f"  landing: {ENVIRONMENT} ({written} tables as csv + parquet)")
+
+
+def write_parquet(table: str, rows: list[tuple], path: Path) -> None:
+    """Writes one table as Parquet, atomically, all columns as text.
+
+    Text throughout is the point: the raw layer is malformed by design and dbt
+    does the typing. Casting here would hide the work.
+    """
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    columns = COLUMNS[table]
+    schema = pa.schema([(name, pa.string()) for name in columns])
+    arrays = [
+        pa.array(["" if row[index] is None else str(row[index]) for row in rows],
+                 type=pa.string())
+        for index in range(len(columns))
+    ]
+    temporary = path.with_suffix(".parquet.tmp")
+    pq.write_table(pa.Table.from_arrays(arrays, schema=schema), temporary,
+                   compression="zstd")
+    temporary.replace(path)
+
+
+@contextmanager
+def _atomic(path: Path):
+    """Yields a handle to a temporary sibling, renamed over `path` on success."""
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    handle = temporary.open("w", encoding="utf-8")
     try:
-        for table in RAW_TABLES:
-            rows = tables.get(table)
-            if not rows:
-                continue
-            database.execute(f"DROP TABLE IF EXISTS raw_{table}")
-            columns = ", ".join(f"{name} VARCHAR" for name in COLUMNS[table])
-            database.execute(f"CREATE TABLE raw_{table} ({columns})")
-            database.executemany(
-                f"INSERT INTO raw_{table} VALUES ({','.join('?' * len(COLUMNS[table]))})",
-                render(table, rows, rng),
-            )
-        print(f"  duckdb: {ENVIRONMENT / 'demo.duckdb'}")
-    finally:
-        database.close()
+        yield handle
+        handle.close()
+        temporary.replace(path)
+    except BaseException:
+        handle.close()
+        temporary.unlink(missing_ok=True)
+        raise
 
 
-def seed(count_customers: int, count_orders: int, as_of: str | None) -> None:
+def build_full_dataset(seed: int, count_customers: int, count_orders: int,
+                       count_accounts: int, now: datetime) -> dict:
+    """The whole demo world: the e-commerce side plus every external source.
+
+    All of it shares one `random.Random`, so a single `--as-of` anchors the whole
+    dataset and one seed reproduces every source together.
+    """
+    rng = random.Random(seed)
+    dataset = build_dataset(seed, count_customers, count_orders, now)
+
+    accounts = sources.build_accounts(rng, count_accounts, now)
+    dataset["accounts"] = accounts
+    dataset.update(sources.build_stripe_history(rng, accounts, now))
+    dataset.update(sources.build_posthog(rng, accounts, now))
+    dataset["ga4_sessions"] = sources.build_ga4(rng, accounts, now, HISTORY_DAYS)
+    return dataset
+
+
+def seed(count_customers: int, count_orders: int, count_accounts: int,
+         as_of: str | None) -> None:
     # The dataset is anchored to an end timestamp. Left to the wall clock, two
     # runs differ in their absolute timestamps, so reproducibility needs an
     # explicit anchor: `seed --as-of 2026-01-31T00:00:00` twice is identical.
     if as_of:
         now = datetime.fromisoformat(as_of)
     else:
-        now = datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0)
-    print(f"building {count_customers} customers and ~{count_orders} orders since "
-          f"{(now - timedelta(days=HISTORY_DAYS)).date()}")
-    dataset = build_dataset(SEED, count_customers, count_orders, now)
+        now = utcnow()
+    print(f"building {count_customers} customers, ~{count_orders} orders and "
+          f"{count_accounts} accounts since {(now - timedelta(days=HISTORY_DAYS)).date()}")
+    dataset = build_full_dataset(
+        SEED, count_customers, count_orders, count_accounts, now
+    )
 
     schema = Path(__file__).with_name("schema.sql").read_text(encoding="utf-8")
     with psycopg.connect(os.environ["DATABASE_URL"]) as connection:
@@ -689,8 +871,214 @@ def seed(count_customers: int, count_orders: int, as_of: str | None) -> None:
     print("seed complete")
 
 
+# --------------------------------------------------------------------------
+# Continuous mode
+# --------------------------------------------------------------------------
+
+
+def tick_volume(moment: datetime, rng: random.Random, burst: float) -> int:
+    """How much activity lands in one tick.
+
+    Shaped rather than uniform: quiet overnight, a morning and afternoon bump, a
+    weekday bias, and a campaign multiplier when a burst is running. Uniform
+    random appends look synthetic in a way that undermines the whole demo.
+    """
+    hour = moment.hour + moment.minute / 60
+    diurnal = 0.35 + 0.95 * max(0.0, -(((hour - 14) / 7) ** 2))
+    weekday = 0.55 if moment.weekday() >= 5 else 1.0
+    noise = rng.uniform(0.7, 1.4)
+    return max(1, int(round(90 * diurnal * weekday * burst * noise)))
+
+
+def row_estimate(connection) -> int:
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT count(*) FROM raw.posthog_events")
+        return cursor.fetchone()[0]
+
+
+def reset(count_customers: int, count_orders: int, count_accounts: int,
+         as_of: str | None) -> None:
+    """Rebuilds the whole history window with a fresh anchor."""
+    anchor = as_of or utcnow().isoformat(timespec="seconds")
+    print(f"reset: reseeding with anchor {anchor}")
+    seed(count_customers, count_orders, count_accounts, anchor)
+
+
+def serve(count_customers: int, count_orders: int, count_accounts: int,
+          cap: int, max_age_days: int, as_of: str | None,
+          tick_seconds: int, min_reset_interval: int) -> None:
+    """Runs until stopped, appending activity and reseeding when it grows too big.
+
+    The cap is enforced in-process rather than by a cron, because a cron that
+    misses a window leaves the demo quietly oversized. `scripts/reset.sh` exists
+    for a manual or scheduled reset, but it is a convenience, not the mechanism
+    that keeps the database bounded.
+
+    A cap below the seeded size cannot ever be satisfied: reseeding rebuilds the
+    whole history window, so the size comes straight back over the cap and the
+    loop resets forever, hammering the database. That is a configuration error,
+    so it is reported and the process exits rather than spinning.
+    """
+    rng = random.Random(SEED + 7919)
+    connection = psycopg.connect(os.environ["DATABASE_URL"])
+    try:
+        seeded_at = utcnow()
+        last_reset: datetime | None = None
+        burst = 1.0
+        burst_until = seeded_at
+
+        while True:
+            now = utcnow()
+            rows = row_estimate(connection)
+            age_days = (now - seeded_at).days
+            due = rows > cap or age_days >= max_age_days
+
+            if due and last_reset is not None and (
+                now - last_reset
+            ) < timedelta(seconds=min_reset_interval):
+                due = False
+                print(f"over cap ({rows} > {cap}) but resetting again within "
+                      f"{min_reset_interval}s of the last one; holding off")
+
+            if due:
+                connection.close()
+                reset(count_customers, count_orders, count_accounts, as_of)
+                connection = psycopg.connect(os.environ["DATABASE_URL"])
+                seeded_at = last_reset = utcnow()
+                burst, burst_until = 1.0, seeded_at
+                reseeded_rows = row_estimate(connection)
+                if reseeded_rows > cap:
+                    raise SystemExit(
+                        f"cap {cap} is below the seeded size ({reseeded_rows} rows), "
+                        "so it can never be satisfied. Raise --cap, or lower "
+                        "--customers / --orders / --accounts."
+                    )
+
+            # Roughly one burst a week, ramping spend and traffic together.
+            if now > burst_until:
+                burst = 1.0
+                burst_until = now + timedelta(days=rng.randint(4, 11))
+            elif rng.random() < 0.02:
+                burst = rng.uniform(2.2, 4.5)
+
+            volume = tick_volume(now, rng, burst)
+            tables = sources_recent(now, rng, volume, burst)
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT 1")  # cheap liveness probe before writing
+            write_postgres(connection, tables, rng)
+            connection.commit()
+
+            if burst > 1.5:
+                print(f"campaign burst x{burst:.1f}: +{volume} events")
+            sleep_for = tick_seconds * rng.uniform(0.6, 1.8)
+            print(f"appended {volume} at {now.isoformat(timespec='seconds')}; "
+                  f"sleeping {sleep_for:.0f}s; rows~{rows}")
+            time.sleep(sleep_for)
+    except KeyboardInterrupt:
+        print("stopping")
+    finally:
+        connection.close()
+
+
+def sources_recent(now: datetime, rng: random.Random, volume: int,
+                   burst: float) -> dict[str, list[dict]]:
+    """A tick's worth of new rows across the external sources.
+
+    Reads the seeded dimensions from the database rather than inventing new
+    entities, so appended activity stays referentially coherent with history.
+    """
+    with psycopg.connect(os.environ["DATABASE_URL"]) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT account_id, plan, seats, country, created_at "
+                "FROM raw.accounts WHERE lower(status) <> 'churned'"
+            )
+            accounts = []
+            for row in cursor.fetchall():
+                created = parse_timestamp(row[4])
+                if created is None:
+                    continue
+                accounts.append({
+                    "account_id": row[0], "plan": row[1],
+                    "seats": int(parse_money(row[2]) or 1) if row[2] else 1,
+                    "country": row[3], "created_at": created,
+                    "trial_ends_at": None, "churned_at": None, "status": "active",
+                    "mrr": 0.0, "name": row[0],
+                })
+            cursor.execute("SELECT distinct_id FROM raw.posthog_people LIMIT 20000")
+            people = [row[0] for row in cursor.fetchall()]
+
+    accounts = [a for a in accounts if a["created_at"] <= now]
+    tables: dict[str, list[dict]] = {
+        "posthog_events": _recent_posthog(rng, people, now, volume),
+        "ga4_sessions": _recent_ga4(rng, now, int(volume * 0.6 * burst)),
+    }
+    tables.update(_recent_charges(rng, accounts, now, volume, burst))
+    return {table: rows for table, rows in tables.items() if rows}
+
+
+def _recent_ga4(rng: random.Random, now: datetime, count: int) -> list[dict]:
+    """A few minutes' worth of sessions, shaped like the seeded history."""
+    sessions = sources.build_ga4(rng, [], now, span_minutes=4)
+    return sessions[:count]
+
+
+def _recent_posthog(rng: random.Random, people: list[str], now: datetime,
+                    volume: int) -> list[dict]:
+    if not people:
+        return []
+    events = []
+    for _ in range(volume):
+        occurred = now - timedelta(seconds=rng.randint(1, 600))
+        name = rng.choice(sources.POSTHOG_EVENTS)[0]
+        properties = {
+            "$current_url": rng.choice(sources.PAGES),
+            "$referrer": "https://www.google.com/",
+            "$browser": rng.choice(sources.BROWSERS)[0],
+            "$os": rng.choice(sources.OSES)[0],
+            "$lib": "web",
+        }
+        if name == "$feature_flag_called":
+            properties["$feature_flag"] = rng.choice(sources.FEATURE_FLAGS)[0]
+            properties["$feature_flag_variant"] = rng.choice(["control", "treatment"])
+        events.append({
+            "event_id": f"ph_{rng.getrandbits(64):016x}",
+            "event": name,
+            "distinct_id": rng.choice(people),
+            "occurred_at": sources._messy_timestamp(occurred, rng),
+            "current_url": properties["$current_url"],
+            "referrer": properties["$referrer"],
+            "browser": properties["$browser"],
+            "os": properties["$os"],
+            "properties": json.dumps(properties, separators=(",", ":")),
+        })
+    return events
+
+
+def _recent_charges(rng: random.Random, accounts: list[dict], now: datetime,
+                    volume: int, burst: float) -> dict[str, list[dict]]:
+    """New successful charges for existing accounts, plus their balance rows."""
+    if not accounts:
+        return []
+    charges, balance = [], []
+    for _ in range(max(1, int(volume * 0.05 * burst))):
+        account = rng.choice(accounts)
+        amount = float(account["plan"] and {
+            "Starter": 29.0, "Growth": 99.0, "Scale": 299.0, "Enterprise": 1200.0,
+        }.get(account["plan"], 99.0))
+        amount *= rng.choice([1, 1, 1, 1, 1.5, 2])
+        currency = rng.choice(["eur", "eur", "usd", "gbp"])
+        charge = sources._make_charge(
+            rng, f"cus_live{rng.getrandbits(40):010x}", None, amount, currency,
+            now, account, f"in_live{rng.getrandbits(40):010x}",
+        )
+        charges.append(charge)
+        sources._append_balance(rng, balance, charge, account, now)
+    return {"stripe_charges": charges, "stripe_balance_transactions": balance}
+
+
 def append(count: int) -> None:
-    now = datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0)
+    now = utcnow()
     tables = recent_activity(SEED, count, now)
     with psycopg.connect(os.environ["DATABASE_URL"]) as connection:
         write_postgres(connection, tables, random.Random(SEED + now.hour))
@@ -722,6 +1110,7 @@ def main() -> int:
     seed_parser = sub.add_parser("seed", help="rebuild the dataset from scratch")
     seed_parser.add_argument("--customers", type=int, default=5000)
     seed_parser.add_argument("--orders", type=int, default=60000)
+    seed_parser.add_argument("--accounts", type=int, default=1200)
     seed_parser.add_argument(
         "--as-of",
         help="ISO timestamp anchoring the end of the history window, for reproducible builds",
@@ -729,6 +1118,33 @@ def main() -> int:
 
     append_parser = sub.add_parser("append", help="add recent activity")
     append_parser.add_argument("--count", type=int, default=25)
+
+    serve_parser = sub.add_parser(
+        "serve", help="run continuously, appending activity and reseeding when capped"
+    )
+    serve_parser.add_argument("--customers", type=int, default=5000)
+    serve_parser.add_argument("--orders", type=int, default=60000)
+    serve_parser.add_argument("--accounts", type=int, default=1200)
+    serve_parser.add_argument(
+        "--cap", type=int, default=400_000,
+        help="reseed once the event table passes this row count",
+    )
+    serve_parser.add_argument(
+        "--max-age-days", type=int, default=30,
+        help="reseed once the seed is this old, regardless of size",
+    )
+    serve_parser.add_argument("--tick-seconds", type=int, default=300)
+    serve_parser.add_argument(
+        "--min-reset-interval", type=int, default=3600,
+        help="refuse to reseed again within this many seconds of the last one",
+    )
+    serve_parser.add_argument("--as-of", help="anchor used when reseeding")
+
+    reset_parser = sub.add_parser("reset", help="reseed now and exit")
+    reset_parser.add_argument("--customers", type=int, default=5000)
+    reset_parser.add_argument("--orders", type=int, default=60000)
+    reset_parser.add_argument("--accounts", type=int, default=1200)
+    reset_parser.add_argument("--as-of", help="ISO timestamp anchoring the new window")
 
     sub.add_parser("export", help="rewrite CSV and DuckDB outputs")
     sub.add_parser("verify", help="print row counts")
@@ -739,9 +1155,15 @@ def main() -> int:
         return 2
 
     if args.command == "seed":
-        seed(args.customers, args.orders, args.as_of)
+        seed(args.customers, args.orders, args.accounts, args.as_of)
     elif args.command == "append":
         append(args.count)
+    elif args.command == "serve":
+        serve(args.customers, args.orders, args.accounts, args.cap,
+              args.max_age_days, args.as_of, args.tick_seconds,
+              args.min_reset_interval)
+    elif args.command == "reset":
+        reset(args.customers, args.orders, args.accounts, args.as_of)
     elif args.command == "export":
         with psycopg.connect(os.environ["DATABASE_URL"]) as connection:
             tables: dict[str, list[dict]] = {}

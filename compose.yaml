@@ -75,6 +75,12 @@ services:
     environment:
       DATABASE_URL: >-
         postgresql://${POSTGRES_USER:-dsui}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-analytics}
+      DEMO_CUSTOMERS: ${DEMO_CUSTOMERS:-5000}
+      DEMO_ORDERS: ${DEMO_ORDERS:-60000}
+      DEMO_ACCOUNTS: ${DEMO_ACCOUNTS:-1200}
+      DEMO_ROW_CAP: ${DEMO_ROW_CAP:-400000}
+      DEMO_MAX_AGE_DAYS: ${DEMO_MAX_AGE_DAYS:-30}
+      DEMO_TICK_SECONDS: ${DEMO_TICK_SECONDS:-300}
     volumes:
       - demo-exports:/out
     depends_on:

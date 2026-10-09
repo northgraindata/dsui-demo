@@ -34,6 +34,12 @@ adapters:
     ref: v0.1.1
     path: packages/adapter-s3
 
+  airflow:
+    source: git
+    repository: git+https://github.com/northgraindata/dsui
+    ref: v0.1.1
+    path: packages/adapter-airflow
+
 plugins:
   # Anonymous visitors get `operator`, which allows running queries and DAG
   # triggers but withholds `manage`. Without this plugin the server falls back to
@@ -50,6 +56,32 @@ plugins:
     config:
       adminSecret: ${DEMO_ADMIN_SECRET}
       allowExecution: true
+
+  # Pre-bundled in the DSUI image, so `source: package` resolves it with no build
+  # and no network. It points at this repository and at the DAG folder, so a
+  # visitor browsing the orchestration service sees the very file Airflow is
+  # running, in DSUI, and can compare it with the run history beside it.
+  #
+  # Refresh is off because the target is a public GitHub repository: polling it
+  # every fifteen minutes from a demo instance spends an anonymous rate limit on
+  # nothing, since the code only changes when the demo is redeployed.
+  code-repository:
+    source: package
+    package: "@northgraindata/dsui-plugin-code-repository"
+    config:
+      refreshMinutes: 0
+      connections:
+        - key: demo-dags
+          serviceId: orchestration
+          name: Demo pipelines
+          provider: github
+          repository: northgraindata/dsui-demo
+          branch: main
+          folder: airflow/dags
+          instructions: >-
+            The DAGs Airflow runs in this demo. `demo_pipeline` builds the
+            platform's own warehouse; `daily_ecommerce_load` stands in for a
+            customer's pipeline.
 
   # The guided tour. Also built from source, and deliberately not `critical`: the
   # demo is perfectly usable without it, so a failure here should not stop the
@@ -95,6 +127,17 @@ services:
       connectTimeout: 10
       statementTimeout: 30000
       applicationName: dsui-demo
+
+  # The customer's own pipeline, not the platform's build log. Reached over the
+  # compose network and never published, so the only way in is through DSUI.
+  - id: orchestration
+    adapter: airflow
+    name: Orchestration
+    connection:
+      method: airflow-2
+      baseUrl: http://airflow:8080
+      username: ${AIRFLOW_API_USER}
+      password: ${AIRFLOW_API_PASSWORD}
 
   # Object storage, seeded from the same landing zone the pipeline reads, so the
   # S3 service and the DuckDB service describe the same business.

@@ -84,6 +84,11 @@ services:
         postgresql+psycopg2://${AIRFLOW_DB_USER:-airflow}:${AIRFLOW_DB_PASSWORD:-dsui-demo-airflow}@postgres:5432/airflow
       AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY:?set AIRFLOW_FERNET_KEY in .env}
       AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "True"
+      # Basic auth for the stable REST API, which is what adapter-airflow talks
+      # to. The value is username:base64(password), so the password is generated
+      # rather than written into this file.
+      AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS: >-
+        ${AIRFLOW_API_USER:-dsui-demo}:${AIRFLOW_API_PASSWORD_B64:?set AIRFLOW_API_PASSWORD_B64 in .env}
       DATABASE_URL: >-
         postgresql://${POSTGRES_USER:-dsui}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-analytics}
     volumes:
@@ -91,6 +96,10 @@ services:
       - ./dbt:/dbt
       - demo-exports:/out
       - airflow-logs:/airflow/logs
+      - airflow-home:/root/airflow
+    # Never published. The adapter reaches it as http://airflow:8080 on the
+    # compose network, so a visitor sees Airflow through DSUI rather than walking
+    # into an unauthenticated scheduler.
     depends_on:
       postgres:
         condition: service_healthy
@@ -212,5 +221,6 @@ volumes:
   demo-exports:
   dbt-target:
   airflow-logs:
+  airflow-home:
   minio-data:
   minio-init:

@@ -19,6 +19,7 @@ RUN pip install --no-cache-dir \
 ENV AIRFLOW__CORE__LOAD_EXAMPLES=False \
     AIRFLOW__CORE__EXECUTOR=LocalExecutor \
     AIRFLOW__SCHEDULING__MIN_FILE_PROCESS_INTERVAL=30 \
+    AIRFLOW__API_AUTH__JWT_SECRET=${AIRFLOW_JWT_SECRET:-dsui-demo-jwt-secret} \
     DBT_PROFILES_DIR=/dbt \
     DEMO_LANDING_DIR=/out \
     DEMO_DUCKDB_NEXT=/out/next/demo.duckdb \

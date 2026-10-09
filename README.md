@@ -48,7 +48,9 @@ docker compose run --rm dsui doctor --check-adapters
 ## How it is wired
 
 Only DSUI is ever published. PostgreSQL, Airflow and MinIO carry no `ports` and
-are reachable only on the compose network. Memory and CPU limits are set on every
+are reachable only on the compose network. Airflow's stable REST API sits behind
+the simple auth manager, so even a visitor who found the container would still
+need a password, and the only way in is through DSUI. Memory and CPU limits are set on every
 container as the primary defence against a visitor asking for something expensive,
 ahead of any application-level rate limiting.
 
@@ -258,6 +260,7 @@ Three services, all fed by the same synthetic business:
 | `landing` | MinIO, seeded from the same CSVs the pipeline reads, so object storage and the warehouse describe one company |
 | `analytics` | PostgreSQL, raw layer and marts side by side, with a statement timeout |
 | `snapshot` | One DuckDB file holding landing, staging and marts, replaced atomically after each build |
+| `orchestration` | Airflow, reached over the compose network with Basic auth and never published |
 
 `demo-guide` walks five stops through them in the order the data flows, and
 contributes a sidebar widget so it is reachable from anywhere. It does not
@@ -274,8 +277,9 @@ autoplay: someone who opened a public demo has already decided to look.
 - [x] MinIO, seeded from the same landing zone the pipeline reads
 - [x] DuckDB snapshot service, read-only
 - [x] `demo-guide` tour plugin
-- [ ] Airflow exposed as a service, so DAG runs are visible in the demo
-- [ ] `code-repository`, monitoring, landing page CTA
+- [x] Airflow exposed as a service, so DAG runs are visible in the demo
+- [x] `code-repository`, pointed at this repository's DAG folder
+- [ ] `monitoring`, landing page CTA
 
 ## Known issues
 

@@ -22,6 +22,18 @@ adapters:
     ref: v0.1.1
     path: packages/adapter-postgresql
 
+  duckdb:
+    source: git
+    repository: git+https://github.com/northgraindata/dsui
+    ref: v0.1.1
+    path: packages/adapter-duckdb
+
+  s3:
+    source: git
+    repository: git+https://github.com/northgraindata/dsui
+    ref: v0.1.1
+    path: packages/adapter-s3
+
 plugins:
   # Anonymous visitors get `operator`, which allows running queries and DAG
   # triggers but withholds `manage`. Without this plugin the server falls back to
@@ -39,7 +51,34 @@ plugins:
       adminSecret: ${DEMO_ADMIN_SECRET}
       allowExecution: true
 
+  # The guided tour. Also built from source, and deliberately not `critical`: the
+  # demo is perfectly usable without it, so a failure here should not stop the
+  # server.
+  demo-guide:
+    source: local
+    path: /plugins/demo-guide
+    config:
+      title: A tour of the demo
+      disclaimer: >-
+        Every service, row and number here is synthetic. Nothing you do reaches a
+        real system, and the data resets on a schedule.
+
 services:
+  # The published DuckDB snapshot: landing, staging and marts side by side.
+  #
+  # `readOnly: true` matters here more than for the database below. The file is
+  # replaced by rename while a visitor may be reading it, and read-only is what
+  # guarantees this connection cannot interfere with the publish step or hold the
+  # old snapshot open against it. A visitor sees a consistent snapshot of the
+  # moment they connected, not a half-written warehouse.
+  - id: snapshot
+    adapter: duckdb
+    name: Published snapshot
+    connection:
+      method: file
+      path: /out/demo.duckdb
+      readOnly: true
+
   # Read-only in practice: `statementTimeout` caps what an anonymous visitor can
   # ask for, and this account owns nothing it should be able to break.
   - id: analytics
@@ -56,3 +95,15 @@ services:
       connectTimeout: 10
       statementTimeout: 30000
       applicationName: dsui-demo
+
+  # Object storage, seeded from the same landing zone the pipeline reads, so the
+  # S3 service and the DuckDB service describe the same business.
+  - id: landing
+    adapter: s3
+    name: Object storage
+    connection:
+      region: eu-central-1
+      endpoint: http://minio:9000
+      accessKeyId: ${MINIO_ROOT_USER}
+      secretAccessKey: ${MINIO_ROOT_PASSWORD}
+      forcePathStyle: true

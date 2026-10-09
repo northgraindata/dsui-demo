@@ -74,7 +74,8 @@ Two details in `dsui.yaml` that are easy to get wrong:
 ├── airflow/dags/         # orchestration
 ├── airflow/               # orchestration: extract, dbt, publish
 ├── plugins/
-│   └── demo-auth/        # anonymous operator, secret-holder owner
+│   ├── demo-auth/        # anonymous operator, secret-holder owner
+│   └── demo-guide/       # guided tour, five stops
 └── scripts/
     └── reset.sh          # reseed the dataset
 ```
@@ -248,6 +249,20 @@ a successful build, so a visitor reading the previous snapshot never sees a
 half-built one. The build target is deleted first each run, because dbt does not
 drop schemas it no longer manages and a reused file accumulates stale duplicates.
 
+## What a visitor sees
+
+Three services, all fed by the same synthetic business:
+
+| Service | What it is |
+| --- | --- |
+| `landing` | MinIO, seeded from the same CSVs the pipeline reads, so object storage and the warehouse describe one company |
+| `analytics` | PostgreSQL, raw layer and marts side by side, with a statement timeout |
+| `snapshot` | One DuckDB file holding landing, staging and marts, replaced atomically after each build |
+
+`demo-guide` walks five stops through them in the order the data flows, and
+contributes a sidebar widget so it is reachable from anywhere. It does not
+autoplay: someone who opened a public demo has already decided to look.
+
 ## Status
 
 - [x] Compose with DSUI and PostgreSQL, one adapter, resource limits, healthcheck
@@ -256,8 +271,11 @@ drop schemas it no longer manages and a reused file accumulates stale duplicates
 - [x] Meta Ads, Google Ads, Search Console daily reports, sharing one acquisition model
 - [x] dbt project: staging, marts, reconciliation
 - [x] Airflow: Postgres to Parquet to dbt to DuckDB, published by atomic rename
-- [ ] MinIO, `code-repository`, monitoring
-- [ ] `demo-guide` tour plugin, landing page CTA
+- [x] MinIO, seeded from the same landing zone the pipeline reads
+- [x] DuckDB snapshot service, read-only
+- [x] `demo-guide` tour plugin
+- [ ] Airflow exposed as a service, so DAG runs are visible in the demo
+- [ ] `code-repository`, monitoring, landing page CTA
 
 ## Known issues
 

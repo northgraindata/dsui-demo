@@ -188,14 +188,53 @@ of them failed where they were defined; they failed later, on whichever code pat
 happened to reach them, which in a generator means a crash or a silent data
 defect that only some seeds ever hit.
 
+## The transformation layer
+
+`dbt/` reads the landing zone and produces marts. Staging is a view layer, marts
+are tables, and the published database shows all three schemas side by side:
+
+```
+landing   21 views   the malformed raw tables, all text
+staging    9 views   typed, deduplicated, one row per grain
+marts      3 tables  the numbers a person actually reads
+```
+
+`macros/clean.sql` holds `parse_timestamp`, `parse_money`, `parse_integer` and
+`normalize_status`: the SQL counterparts of the generator's own parsing helpers.
+The generator writes the mess and then has to read its own writing back, and so
+does dbt.
+
+`fct_revenue_reconciliation` is the model the whole dataset exists to support.
+A subscription business has several defensible answers to "how much revenue last
+month", and a workspace that shows only one is hiding something, so the mart
+keeps every answer side by side and names the gap:
+
+| What | Where |
+| --- | --- |
+| Revenue gross, refunded, fees, net | `fct_revenue_daily`, built from the Stripe balance ledger |
+| Active accounts, MRR, churn | the product database |
+| Active, canceled and past-due subscriptions, invoice counts | Stripe billing records |
+| Spend, clicks, sessions, average position | the acquisition reports |
+| Active users, feature flag exposure | PostHog |
+| `active_account_gap`, `effective_fee_pct`, `largest_discrepancy` | the differences |
+
+`largest_discrepancy` names the biggest disagreement in plain language, and all
+three of its branches fire on the generated data rather than being decoration.
+
+The build writes to `next/demo.duckdb` and never to the published file, because
+DuckDB allows a single writing process. Airflow renames it into place only after
+a successful build, so a visitor reading the previous snapshot never sees a
+half-built one. The build target is deleted first each run, because dbt does not
+drop schemas it no longer manages and a reused file accumulates stale duplicates.
+
 ## Status
 
 - [x] Compose with DSUI and PostgreSQL, one adapter, resource limits, healthcheck
 - [ ] `demo-auth` two-tier plugin
 - [x] Data generator: e-commerce, Stripe, PostHog, GA4, accounts
 - [x] Meta Ads, Google Ads, Search Console daily reports, sharing one acquisition model
+- [x] dbt project: staging, marts, reconciliation
 - [ ] Airflow: Postgres to Parquet to dbt to DuckDB, published by atomic rename
-- [ ] dbt project, seeded and built
 - [ ] MinIO, `code-repository`, monitoring
 - [ ] `demo-guide` tour plugin, landing page CTA
 

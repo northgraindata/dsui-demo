@@ -201,7 +201,9 @@ def build_stripe_history(rng: random.Random, accounts: list[dict], now: datetime
 
         plan_price = account["mrr"] or 99.0
         currency = _pick(rng, CURRENCIES)
-        started = created + timedelta(days=rng.randint(0, 5))
+        # Clamped to the anchor for the same reason billing_end is: an account
+        # created near `now` would otherwise get a subscription dated after it.
+        started = min(created + timedelta(days=rng.randint(0, 5)), now)
         subscription_id = f"sub_{rng.getrandbits(48):012x}"
         period_end = started + timedelta(days=30)
         status = "trialing" if account["trial_ends_at"] else "active"
@@ -216,7 +218,9 @@ def build_stripe_history(rng: random.Random, accounts: list[dict], now: datetime
         }
 
         # Monthly billing up to now, or up to churn.
-        billing_end = account["churned_at"] or now
+        # A churn date can be later than the anchor, and billing it out to
+        # that date produced charges and refunds stamped in the future.
+        billing_end = min(account["churned_at"], now) if account["churned_at"] else now
         cycle = started
         while cycle < billing_end:
             cycle_end = min(cycle + timedelta(days=30), billing_end)

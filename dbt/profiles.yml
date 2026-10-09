@@ -1,0 +1,14 @@
+# DuckDB is dbt's engine and its output, never the generator's. It allows one
+# writing process, so nothing else may hold this file while a build runs.
+#
+# `analytics.next.duckdb` is the build target; Airflow renames it into place
+# only after the build succeeds, which is what lets a visitor keep reading the
+# previous snapshot without ever seeing a half-built one.
+dsui_demo:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: "{{ env_var('DEMO_DUCKDB_NEXT', 'next/demo.duckdb') }}"
+      schema: marts
+      threads: 4

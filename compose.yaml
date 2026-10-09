@@ -65,6 +65,32 @@ services:
           cpus: "1.0"
           memory: 512m
 
+  # The transformation layer. Runs as a one-shot job rather than a service:
+  # DuckDB allows one writing process, so a long-lived dbt container would hold
+  # the database open and block the visitor reading it. Airflow invokes this.
+  dbt:
+    build:
+      context: ./dbt
+    profiles: []
+    environment:
+      DBT_PROFILES_DIR: /dbt
+      DEMO_LANDING_DIR: /out
+      DEMO_DUCKDB_NEXT: /out/next/demo.duckdb
+    volumes:
+      - demo-exports:/out
+      # Compiled SQL survives the container, so a Jinja or SQL error can be read
+      # instead of guessed at.
+      - dbt-target:/dbt/target
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2g
+
   # Seeds the synthetic dataset on first boot, then appends a trickle of recent
   # activity every five minutes so the demo's charts keep moving. The demo is
   # more convincing when something is visibly live.
@@ -96,3 +122,4 @@ volumes:
   dsui-data:
   postgres-data:
   demo-exports:
+  dbt-target:

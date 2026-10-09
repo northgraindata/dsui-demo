@@ -353,7 +353,10 @@ def parse_timestamp(value: str | None) -> datetime | None:
     text = value.strip()
     if text.isdigit():
         return datetime.fromtimestamp(int(text), timezone.utc).replace(tzinfo=None)
-    for pattern in ("%Y-%m-%d %H:%M:%S", "%d/%m/%Y %H:%M", "%Y-%m-%d"):
+    # `%f` is here because `isoformat()` emits microseconds whenever the
+    # value has a fractional part, which is most of them.
+    for pattern in ("%Y-%m-%d %H:%M:%S", "%d/%m/%Y %H:%M", "%Y-%m-%d",
+                    "%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S"):
         try:
             return datetime.strptime(text, pattern)
         except ValueError:
@@ -813,26 +816,45 @@ def write_exports(tables: dict[str, list[dict]]) -> None:
     print(f"  landing: {ENVIRONMENT} ({written} tables as csv + parquet)")
 
 
-def write_parquet(table: str, rows: list[tuple], path: Path) -> None:
+def write_parquet(table: str, rows: list[tuple], path: Path,
+                 batch_size: int = 20_000) -> None:
     """Writes one table as Parquet, atomically, all columns as text.
 
     Text throughout is the point: the raw layer is malformed by design and dbt
     does the typing. Casting here would hide the work.
+
+    Streamed in batches rather than materialised as one Arrow table. The event
+    table is the largest by an order of magnitude, and building it whole is what
+    pushed the container past its memory limit and left a truncated `.tmp` file
+    behind. Row-group size here has nothing to do with correctness; it exists so
+    that peak memory is bounded by the batch, not by the table.
     """
     import pyarrow as pa
     import pyarrow.parquet as pq
 
     columns = COLUMNS[table]
     schema = pa.schema([(name, pa.string()) for name in columns])
-    arrays = [
-        pa.array(["" if row[index] is None else str(row[index]) for row in rows],
-                 type=pa.string())
-        for index in range(len(columns))
-    ]
     temporary = path.with_suffix(".parquet.tmp")
-    pq.write_table(pa.Table.from_arrays(arrays, schema=schema), temporary,
-                   compression="zstd")
-    temporary.replace(path)
+
+    writer = pq.ParquetWriter(temporary, schema, compression="zstd")
+    try:
+        for start in range(0, len(rows), batch_size):
+            batch = rows[start:start + batch_size]
+            arrays = [
+                pa.array(
+                    ["" if row[index] is None else str(row[index]) for row in batch],
+                    type=pa.string(),
+                )
+                for index in range(len(columns))
+            ]
+            writer.write_table(pa.Table.from_arrays(arrays, schema=schema))
+    except BaseException:
+        writer.close()
+        temporary.unlink(missing_ok=True)
+        raise
+    else:
+        writer.close()
+        temporary.replace(path)
 
 
 @contextmanager

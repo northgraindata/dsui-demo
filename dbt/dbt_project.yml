@@ -1,0 +1,36 @@
+# The demo transformation layer.
+#
+# Reads the malformed landing zone and produces marts that reconcile. The whole
+# point of the raw layer's mess is that cleaning it is visible work, so nothing
+# here is allowed to skip a step: no typed columns at the source, no casts in the
+# source definitions, no staging model that quietly inherits a cast.
+
+name: dsui_demo
+version: 1.0.0
+config-version: 2
+
+profile: dsui_demo
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+test-paths: ["tests"]
+
+# Rebuild the Parquet landing zone as DuckDB views before anything else runs.
+# A source that finds no view fails with a confusing missing-relation error, so
+# this happens first and loudly instead.
+on-run-start:
+  - "{{ landing_views() }}"
+
+target-path: target
+clean-targets: ["target", "dbt_packages"]
+
+# Staging is a view layer: it exists to be read by the marts and by a visitor
+# poking at the database, and views keep the build fast enough to watch.
+models:
+  dsui_demo:
+    staging:
+      +materialized: view
+      +schema: staging
+    marts:
+      +materialized: table
+      +schema: marts

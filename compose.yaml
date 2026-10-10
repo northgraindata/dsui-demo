@@ -56,6 +56,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-analytics}
       AIRFLOW_DB_USER: ${AIRFLOW_DB_USER:-airflow}
       AIRFLOW_DB_PASSWORD: ${AIRFLOW_DB_PASSWORD:-dsui-demo-airflow}
+      AIRFLOW_DB_NAME: airflow
       DEMO_WRITER_USER: ${DEMO_WRITER_USER:-demo_writer}
       DEMO_WRITER_PASSWORD: ${DEMO_WRITER_PASSWORD:-dsui-demo-writer}
       DEMO_READER_USER: ${DEMO_READER_USER:-demo_reader}
@@ -75,6 +76,32 @@ services:
         limits:
           cpus: '1'
           memory: 512m
+  db-bootstrap:
+    image: dsui-demo-postgres:0.1.1
+    restart: 'no'
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-analytics}
+      AIRFLOW_DB_USER: ${AIRFLOW_DB_USER:-airflow}
+      AIRFLOW_DB_PASSWORD: ${AIRFLOW_DB_PASSWORD:-dsui-demo-airflow}
+      AIRFLOW_DB_NAME: airflow
+      AIRFLOW_DB_NAME: airflow
+      DEMO_WRITER_USER: ${DEMO_WRITER_USER:-demo_writer}
+      DEMO_WRITER_PASSWORD: ${DEMO_WRITER_PASSWORD:-dsui-demo-writer}
+      DEMO_READER_USER: ${DEMO_READER_USER:-demo_reader}
+      DEMO_READER_PASSWORD: ${DEMO_READER_PASSWORD:-dsui-demo-reader}
+    command:
+    - sh
+    - -ec
+    - |
+      until pg_isready -h postgres -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"; do sleep 2; done
+      export PGPASSWORD="$$POSTGRES_PASSWORD"
+      psql -h postgres -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" \
+        -f /docker-entrypoint-initdb.d/02-ensure-roles.sql
+    depends_on:
+      postgres:
+        condition: service_healthy
   airflow:
     build:
       context: .
@@ -190,6 +217,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      db-bootstrap:
+        condition: service_completed_successfully
       volume-init:
         condition: service_completed_successfully
     deploy:

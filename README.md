@@ -17,7 +17,7 @@ disclosed on purpose:
 | --- | --- |
 | `.env` | Not committed. Holds `DSUI_MASTER_KEY` and `DEMO_ADMIN_SECRET`. |
 | `compose.yaml` | Reads everything from the environment. No literal secrets. |
-| `dsui.yaml` | Interpolates `${POSTGRES_USER}` / `${POSTGRES_PASSWORD}` from the environment. |
+| `dsui.yaml` | Interpolates the dedicated reader credentials from the environment. |
 | PostgreSQL, MinIO, Airflow | Published defaults in `.env.example`. They protect nothing real. |
 
 Do not copy this credential handling into anything that matters. The point of the
@@ -25,44 +25,51 @@ demo is that its data is worthless, so disclosure costs nothing.
 
 ## Running it
 
+On Linux:
+
 ```sh
-cp .env.example .env
-# Generate the two secrets:
-#   DSUI_MASTER_KEY   ->  openssl rand -base64 32   (must decode to exactly 32 bytes)
-#   DEMO_ADMIN_SECRET ->  openssl rand -hex 24
-docker compose up -d
-docker compose logs -f dsui
+python3 scripts/setup-env.py
+docker compose up -d --build
+docker compose logs -f airflow dsui
 ```
 
-First boot is slow on purpose. Adapters are compiled from source, which takes
-minutes; the healthcheck allows a ten-minute grace period so the container does
-not restart-loop during that build. `/data` is a volume, so the package-manager
-cache survives restarts and later boots are quick.
-
-Then:
+The setup script fills missing runtime secrets and preserves existing ones.
+On macOS use Apple Containers with `container-compose`.
+The helper requires PyYAML (included in `requirements-dev.txt`).
+It renders configuration, resolves container addresses, isolates the process environment and uses shared host directories for exports.
 
 ```sh
-docker compose run --rm dsui doctor --check-adapters
+python3 scripts/setup-env.py
+python3 scripts/start-apple.py --build
+```
+
+For subsequent starts omit `--build`.
+Local Apple state lives in the ignored `.state/` directory.
+Run `container logs dsui-demo-airflow` or `container logs dsui-demo-dsui` to inspect startup.
+The first build downloads pinned DSUI and MinIO source archives and compiles the runtime.
+Allow several minutes for image builds, the initial seed and the first dbt build.
+
+```sh
+docker compose exec dsui dsui doctor --check-adapters
 ```
 
 ## How it is wired
 
-Only DSUI is ever published. PostgreSQL, Airflow and MinIO carry no `ports` and
-are reachable only on the compose network. Airflow's stable REST API sits behind
-the simple auth manager, so even a visitor who found the container would still
-need a password, and the only way in is through DSUI. Memory and CPU limits are set on every
-container as the primary defence against a visitor asking for something expensive,
-ahead of any application-level rate limiting.
+Only DSUI publishes a host port.
+PostgreSQL, Airflow and MinIO stay on the internal network.
+Airflow 2.10.5 uses its supported Basic API authentication and a provisioned user.
+Its healthcheck verifies the running webserver, metadata database and scheduler.
+DSUI connects to PostgreSQL as a dedicated reader with no write grants and a 30-second statement timeout.
+Provisioning, ingestion and Airflow metadata use separate roles.
 
-Nothing floats on a branch. Every `ref` in `dsui.yaml` is pinned to a tag, so a
-push to a repository can never change or break the public demo; fixing the demo is
-a deliberate tag bump.
+DSUI, SDKs and adapters are built together from the immutable source commit and lockfile in `Dockerfile`.
+The old published DSUI release predates the plugin APIs this demo needs.
+MinIO is built from a pinned, checksum-verified source archive because the old official image is unavailable.
 
-Two details in `dsui.yaml` that are easy to get wrong:
-
-- An adapter's `repository` must be a full `git+https://github.com/owner/name`
-  URL. A plugin's is a bare `owner/name`.
-- `ref` is a tag, never `main`.
+The generator marks the initial seed ready only after database writes and file exports finish.
+Airflow extracts a consistent PostgreSQL transaction, builds a fresh DuckDB snapshot, uploads CSV and Parquet to MinIO, then atomically publishes the snapshot.
+A failed build preserves the previous published database.
+Landing data is materialized inside DuckDB so that published snapshots remain readable after the Parquet files change.
 
 ## Layout
 
@@ -77,7 +84,7 @@ Two details in `dsui.yaml` that are easy to get wrong:
 ├── airflow/               # orchestration: extract, dbt, publish
 ├── plugins/
 │   ├── demo-auth/        # anonymous operator, secret-holder owner
-│   └── demo-guide/       # guided tour, five stops
+│   └── demo-guide/       # developer investigation with contextual overlays
 └── scripts/
     └── reset.sh          # reseed the dataset
 ```
@@ -142,7 +149,7 @@ equivalent macros later.
 
 | Source | Tables | Fidelity notes |
 | --- | --- | --- |
-| Stripe | customers, subscriptions, invoices, charges, refunds, balance transactions | Integer minor units, epoch timestamps, lowercased ISO currency, negative amounts on charges and positive on refunds, `net = amount - fee`, and refunds update `amount_refunded` on the parent charge |
+| Stripe | customers, subscriptions, invoices, charges, refunds, balance transactions | Integer minor units, epoch timestamps, lowercased ISO currency, positive balance amounts on charges and negative on refunds, `net = amount - fee`, and refunds update `amount_refunded` on the parent charge |
 | PostHog | people, events | `event` / `distinct_id` / `timestamp` envelope, `$set` and `$set_once` person properties, `$current_url`, `$referrer`, `$browser`, `$os`, and `$feature_flag_called` with a variant |
 | GA4 | sessions | Anonymous `session_id`, `source` / `medium` / `campaign`, `engagement_time_msec`, bounce flag |
 | Meta Ads | meta_ads_daily | Spend as a decimal string, and `actions` as the nested action-type/value array a Meta report actually is |
@@ -150,9 +157,11 @@ equivalent macros later.
 | Search Console | gsc_daily | One row per dimension combination with a fractional average `position` between 1 and 100 |
 | Accounts | accounts | The product's own dimension, and the join key the other sources resolve to |
 
-Landed the way the vendors actually hand data over: Stripe as verbatim webhook
-JSON in a `payload` column with only `created_at` promoted, PostHog as an event
-envelope. Nothing is flattened into a convenient shape on the way in.
+Landed the way the vendors actually hand data over: Stripe as synthetic API object snapshots in `payload`, with export index columns alongside them.
+The modeled Stripe API schema is `2024-06-20`; these are object snapshots, not `event.data.object` webhook envelopes.
+PostHog retains its event envelope and person-property exports.
+GA4, ad platforms and Search Console are modeled report exports, not verbatim vendor API responses.
+See [source fidelity](docs/source-fidelity.md) for scope and limitations.
 
 ### One acquisition model, not six random walks
 
@@ -186,7 +195,7 @@ keeps the database bounded. A cap below the seeded size can never be satisfied,
 so it is reported and the process exits instead of looping.
 
 ```sh
-docker compose run --rm data-generator python generate.py verify
+docker compose exec data-generator python generate.py verify
 scripts/reset.sh                       # reseed now
 scripts/reset.sh 2026-01-31T00:00:00   # reseed at a fixed anchor
 ```
@@ -194,23 +203,49 @@ scripts/reset.sh 2026-01-31T00:00:00   # reseed at a fixed anchor
 Reproducible builds need an anchor, because the wall clock moves the window:
 
 ```sh
-docker compose run --rm data-generator python generate.py seed --as-of 2026-01-31T00:00:00
+scripts/reset.sh 2026-01-31T00:00:00
 ```
 
 ### Checks
 
-Two static gates run during the image build. `pyflakes` catches shape errors.
-`test_tables.py` asserts the shape of every weighted-choice table, that country
-codes are two letters, that the acquisition builders run end to end, and that
-GA4 volume actually follows the acquisition index.
+CI generates all 21 landing files with a fixed `2026-01-31` anchor and runs a real DuckDB `dbt build`.
+Model contracts enforce documented column names and types.
+`dbt_utils` checks composite grains and accounting expressions; `dbt_expectations` checks nonempty tables and value ranges.
+Singular SQL tests reconcile marts to raw acquisition reports and the Stripe ledger, validate refund totals and exercise the cleaning macros.
+Python tests cover Stripe identities, object links, billing periods, full refunds, live customer identity, and CSV/Parquet round trips.
+The intentional orphan order items emit a warning; other failures stop the build before publication.
+A static CI job uses [northgraindata/dbt-doctor](https://github.com/northgraindata/dbt-doctor), pinned to a commit, with native static rules and an error gate.
+A runtime CI job builds and starts the complete stack from fresh volumes.
+`scripts/smoke.py` verifies anonymous/owner roles, management and SQL write denial, all four adapters, execution of both DAGs, object-storage refresh and preservation of a published snapshot after a failed dbt build.
+CI uploads the dbt manifest, results, catalog and runtime logs for review.
 
-Both exist because those bugs were here. Three weighted-choice tables were
-malformed as flat lists and `(source, medium, weight)` triples. Three separate
-places subscripted or unpacked the result of a helper that already returns a
-value, which produced a truncated country code `"D"` and two unpack errors. None
-of them failed where they were defined; they failed later, on whichever code path
-happened to reach them, which in a generator means a crash or a silent data
-defect that only some seeds ever hit.
+```sh
+python scripts/smoke.py
+# macOS, after starting with the Apple helper:
+python scripts/smoke.py --url http://localhost:4192
+```
+
+Run the same data checks locally without backing services:
+
+```sh
+python3.12 -m venv .venv
+. .venv/bin/activate
+pip install -r requirements-dev.txt
+python -m pyflakes data-generator/*.py airflow/dags/*.py tests/*.py
+python data-generator/test_tables.py
+python -m unittest discover -s tests -p 'test_*.py'
+export DEMO_LANDING_DIR="$PWD/.ci/landing"
+export DEMO_DUCKDB_NEXT="$PWD/.ci/next/demo.duckdb"
+python tests/create_landing.py --output "$DEMO_LANDING_DIR"
+dbt deps --project-dir dbt --profiles-dir dbt
+dbt/entrypoint.sh dbt build --project-dir dbt --profiles-dir dbt
+dbt docs generate --project-dir dbt --profiles-dir dbt
+npx dbt-doctor@0.3.4 dbt --offline --fail-on error
+```
+
+Use `--customers 5000 --orders 60000 --accounts 1200` with `tests/create_landing.py` to exercise the deployment defaults.
+The generator's default `DEMO_ROW_CAP=1000000` caps PostHog events, not the total warehouse row count.
+The 1200-account seed alone produces roughly 720,000 PostHog events, so the earlier 400,000 cap could never be satisfied.
 
 ## The transformation layer
 
@@ -218,8 +253,8 @@ defect that only some seeds ever hit.
 are tables, and the published database shows all three schemas side by side:
 
 ```
-landing   21 views   the malformed raw tables, all text
-staging    9 views   typed, deduplicated, one row per grain
+landing   21 tables   raw exports, all text
+staging   21 views   typed, documented, one row per declared grain
 marts      3 tables  the numbers a person actually reads
 ```
 
@@ -242,8 +277,11 @@ keeps every answer side by side and names the gap:
 | Active users, feature flag exposure | PostHog |
 | `active_account_gap`, `effective_fee_pct`, `largest_discrepancy` | the differences |
 
-`largest_discrepancy` names the biggest disagreement in plain language, and all
-three of its branches fire on the generated data rather than being decoration.
+`largest_discrepancy` reports the first applicable diagnostic, prioritizing account differences before open invoices.
+It does not numerically rank metrics with different units.
+Account and subscription counts are current statuses grouped by creation month.
+Their MRR is current cohort MRR, while revenue and activity are monthly flows; this is an illustrative comparison, not historical month-end MRR.
+Cash marts include settled ledger entries, preserve currency grain and subtract refunds and fees.
 
 The build writes to `next/demo.duckdb` and never to the published file, because
 DuckDB allows a single writing process. Airflow renames it into place only after
@@ -253,18 +291,36 @@ drop schemas it no longer manages and a reused file accumulates stale duplicates
 
 ## What a visitor sees
 
-Three services, all fed by the same synthetic business:
+Five services, all fed by the same synthetic business:
 
 | Service | What it is |
 | --- | --- |
 | `landing` | MinIO, seeded from the same CSVs the pipeline reads, so object storage and the warehouse describe one company |
-| `analytics` | PostgreSQL, raw layer and marts side by side, with a statement timeout |
+| `analytics` | PostgreSQL raw layer, accessed by a read-only role with a statement timeout |
 | `snapshot` | One DuckDB file holding landing, staging and marts, replaced atomically after each build |
 | `orchestration` | Airflow, reached over the compose network with Basic auth and never published |
+| `transformations` | dbt project, including source SQL, compiled models and build artifacts |
 
-`demo-guide` walks five stops through them in the order the data flows, and
-contributes a sidebar widget so it is reachable from anywhere. It does not
-autoplay: someone who opened a public demo has already decided to look.
+`demo-guide` is a 6–8 minute developer investigation launched from the sidebar.
+It first introduces the workspace UI, then follows a missing-orders report from
+DuckDB to PostgreSQL, the dbt filter, Airflow and the MinIO input artifact. The
+panel stays in one viewport corner and highlights the actual editor, results and
+model source. Query steps advance after the visitor runs the prepared SQL.
+
+The regression uses nine deterministic orders in `raw.demo_tour_orders`, separate
+from generated commerce data. The source changes from `paid` to `completed` while
+`marts.fct_tour_orders` intentionally retains the old filter. Airflow extracts and
+publishes `demo_tour_orders.parquet` with the normal landing artifacts. The guide's
+repair action builds only its own corrected dbt project, tests nine orders and
+900 revenue, then removes its disposable database. It preserves the original
+regression so each visitor can reproduce the investigation.
+
+The tour ends with the code-repository plugin and a Plugin SDK contribution
+example. Product code provides generic slots, positioning, named targets and
+interaction notifications; the story and repair code live in `plugins/demo-guide`.
+
+The demo image pins DSUI commit `7fe8a6692050de10e10ecd6c7b7d811935d92440`,
+which includes the SDK overlay contracts and host changes.
 
 ## Status
 
@@ -283,12 +339,8 @@ autoplay: someone who opened a public demo has already decided to look.
 
 ## Known issues
 
-`adapters[].source: git` does not currently accept a tag. The refinement in
-`packages/server/src/config.ts` implements an exclusive-or where its own message
-describes "both or neither", so it rejects `ref` + `path` and `commit` +
-`integrity` while accepting a `commit` or an `integrity` on its own. Until that is
-fixed, an adapter cannot be pointed at a tag. `dsui.yaml` here is written in the
-intended form and will work as soon as the predicate matches its message.
+See [project review](docs/project-review.md) for remaining deployment checks and modeling limits.
 
-The AI agent is deliberately absent: `packages/plugin-ai-agent` has no source, so
-there is nothing to mount. The demo does not promise it.
+
+The AI agent is absent because the pinned runtime has no AI agent plugin implementation.
+Historical MRR and month-end subscriber counts require state history; current cohort metrics are labeled in the model documentation.

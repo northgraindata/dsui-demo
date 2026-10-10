@@ -1,0 +1,73 @@
+version: 2
+models:
+- name: stg_ga4__sessions
+  description: Synthetic session export, one row per session_id; anonymous and modeled after GA4 concepts, not a
+    native GA4 API response.
+  config:
+    contract:
+      enforced: true
+    meta:
+      owner: data-platform
+    tags:
+    - staging
+    - ga4
+  data_tests:
+  - dbt_expectations.expect_table_row_count_to_be_between:
+      min_value: 1
+  columns:
+  - name: session_id
+    description: Synthetic anonymous session identifier; not an account identity.
+    data_type: varchar
+    data_tests:
+    - not_null
+    - unique
+  - name: occurred_at
+    description: UTC timestamp when the event or session occurred.
+    data_type: timestamp
+    data_tests:
+    - not_null
+  - name: session_date
+    description: Session date reported by the source.
+    data_type: date
+  - name: country
+    description: Uppercase two-letter country code in the normalized demo export.
+    data_type: varchar
+  - name: device_category
+    description: Device category reported by the source.
+    data_type: varchar
+  - name: traffic_source
+    description: Traffic source reported by the source.
+    data_type: varchar
+  - name: source_medium
+    description: Source medium reported by the source.
+    data_type: varchar
+  - name: campaign_name
+    description: Human-readable campaign name, null when the export has (not set).
+    data_type: varchar
+  - name: session_number
+    description: Session number reported by the source.
+    data_type: integer
+    data_tests:
+    - dbt_expectations.expect_column_values_to_be_between:
+        min_value: 0
+  - name: engagement_time_msec
+    description: Session engagement duration in milliseconds.
+    data_type: integer
+    data_tests:
+    - dbt_expectations.expect_column_values_to_be_between:
+        min_value: 0
+  - name: is_bounce
+    description: 'Synthetic bounce indicator: 1 when engagement is under 800 ms, otherwise 0; not the GA4 engagement
+      definition.'
+    data_type: integer
+    data_tests:
+    - accepted_values:
+        values:
+        - 0
+        - 1
+  - name: source
+    description: Trimmed acquisition source extracted from source_medium, such as google or meta.
+    data_type: varchar
+  - name: medium
+    description: Trimmed acquisition medium, such as cpc, organic, referral or paid_social.
+    data_type: varchar

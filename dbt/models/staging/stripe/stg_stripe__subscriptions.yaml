@@ -1,0 +1,78 @@
+version: 2
+models:
+- name: stg_stripe__subscriptions
+  description: 'Current Stripe subscription snapshot, one row per subscription_id; one flat-price item per account.
+    API schema subset: 2024-06-20.'
+  config:
+    contract:
+      enforced: true
+    meta:
+      owner: data-platform
+    tags:
+    - staging
+    - stripe
+  data_tests:
+  - dbt_expectations.expect_table_row_count_to_be_between:
+      min_value: 1
+  columns:
+  - name: subscription_id
+    description: Subscription identifier; one current object snapshot per subscription.
+    data_type: varchar
+    data_tests:
+    - not_null
+    - unique
+  - name: customer_id
+    description: Customer identifier within this source; Stripe IDs use the cus_ prefix.
+    data_type: varchar
+    data_tests:
+    - relationships:
+        to: '{{ ref(''stg_stripe__customers'') }}'
+        field: customer_id
+  - name: account_id
+    description: Product account identifier used to join billing and product analytics.
+    data_type: varchar
+    data_tests:
+    - relationships:
+        to: '{{ ref(''stg_product__accounts'') }}'
+        field: account_id
+  - name: status
+    description: Normalized source status, specific to the object type.
+    data_type: varchar
+    data_tests:
+    - accepted_values:
+        values:
+        - active
+        - trialing
+        - past_due
+        - canceled
+  - name: currency
+    description: Currency code. Stripe uses lowercase; acquisition and product reports use uppercase EUR. No FX
+      conversion is modeled.
+    data_type: varchar
+  - name: created_at
+    description: Object creation timestamp in UTC, parsed from the source representation.
+    data_type: timestamp
+    data_tests:
+    - not_null
+  - name: current_period_start
+    description: Start of the current 30-day synthetic billing period in UTC.
+    data_type: timestamp
+  - name: current_period_end
+    description: End of the current 30-day synthetic billing period in UTC, which may be in the future.
+    data_type: timestamp
+  - name: canceled_at
+    description: UTC cancellation timestamp; null for subscriptions that have not been canceled.
+    data_type: timestamp
+  - name: cancel_at_period_end
+    description: Whether a future cancellation is scheduled; false for immediately canceled demo subscriptions.
+    data_type: boolean
+  - name: unit_amount_minor
+    description: Flat monthly subscription price in minor units; quantity is one.
+    data_type: integer
+  - name: quantity
+    description: Number of purchased units; Stripe subscription quantity is one for flat account pricing.
+    data_type: integer
+  - name: payload
+    description: Synthetic API object snapshot JSON, pinned to the modeled Stripe 2024-06-20 schema; not a webhook
+      envelope.
+    data_type: json

@@ -1,0 +1,52 @@
+version: 2
+models:
+- name: fct_revenue_daily
+  description: Settled cash movement at UTC day/currency grain; excludes pending balance entries and preserves minor
+    units.
+  config:
+    contract:
+      enforced: true
+    meta:
+      owner: data-platform
+    tags:
+    - marts
+    - marts
+  data_tests:
+  - dbt_expectations.expect_table_row_count_to_be_between:
+      min_value: 1
+  - dbt_utils.unique_combination_of_columns:
+      combination_of_columns:
+      - revenue_date
+      - currency
+  - dbt_utils.expression_is_true:
+      expression: net_minor = gross_minor - refunded_minor - fees_minor
+  columns:
+  - name: revenue_date
+    description: UTC creation day of the settled Stripe balance movements.
+    data_type: date
+    data_tests:
+    - not_null
+  - name: currency
+    description: Currency code. Stripe uses lowercase; acquisition and product reports use uppercase EUR. No FX
+      conversion is modeled.
+    data_type: varchar
+    data_tests:
+    - not_null
+  - name: gross_minor
+    description: Settled charge amounts in minor units before refunds and processing fees.
+    data_type: hugeint
+  - name: refunded_minor
+    description: Positive amount refunded in minor currency units.
+    data_type: hugeint
+  - name: fees_minor
+    description: Total processing fees in minor currency units.
+    data_type: hugeint
+  - name: net_minor
+    description: Signed balance impact in minor units, equal to gross less refunds and processing fees.
+    data_type: hugeint
+  - name: charge_count
+    description: Charge count reported by the source for this period.
+    data_type: bigint
+  - name: refund_count
+    description: Refund count reported by the source for this period.
+    data_type: bigint

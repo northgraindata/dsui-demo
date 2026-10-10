@@ -3,9 +3,9 @@
 Each source mimics how that vendor actually hands data over, because that
 determines the landing shape:
 
-* **Stripe** arrives as verbatim webhook JSON. Amounts are integers in the
+* **Stripe** arrives as API object snapshot JSON. Amounts are integers in the
   smallest currency unit, timestamps are epoch seconds, currency codes are
-  lowercased ISO, and a balance transaction for a charge has a *negative* amount
+  lowercased ISO, and a balance transaction for a charge has a *positive* amount
   with a separate fee. Those four details are what make generated Stripe data
   read as real, and all four are wrong if you invent them.
 * **PostHog** arrives as an event envelope: `event`, `distinct_id`, `timestamp`,
@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import json
 import random
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 API_VERSION = "2024-06-20"
 
@@ -31,7 +31,7 @@ HISTORY_SPAN_DAYS = 540
 
 CARD_BRANDS = [
     ("visa", 0.62), ("mastercard", 0.22), ("amex", 0.08), ("elo", 0.04),
-    ("sepa_debit", 0.04),
+    ("discover", 0.04),
 ]
 CARD_COUNTRIES = [("US", 0.34), ("GB", 0.18), ("DE", 0.16), ("FR", 0.08),
                   ("NL", 0.07), ("ES", 0.06), ("PL", 0.05), ("SE", 0.06)]
@@ -98,6 +98,8 @@ def _json(payload: dict) -> str:
 
 def _timestamp(moment: datetime) -> int:
     """Stripe measures time in whole seconds since the epoch."""
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
     return int(moment.timestamp())
 
 
@@ -113,6 +115,11 @@ def _messy_timestamp(moment: datetime, rng: random.Random) -> str:
     if roll < 0.95:
         return moment.strftime("%d/%m/%Y %H:%M")
     return moment.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _api_timestamp(moment: datetime, _rng: random.Random) -> str:
+    """Promoted Stripe timestamps preserve the API epoch value exactly."""
+    return str(_timestamp(moment))
 
 
 # ---------------------------------------------------------------------------
@@ -149,7 +156,7 @@ def build_accounts(rng: random.Random, count: int, now: datetime) -> list[dict]:
             "status": "churned" if churned else "active",
             "mrr": 0.0 if churned else float(price),
             "trial_ends_at": created + timedelta(days=14) if trialing else None,
-            "churned_at": created + timedelta(days=rng.randint(60, 500)) if churned else None,
+            "churned_at": created + (now - created) * rng.uniform(0.2, 0.95) if churned else None,
         })
     return accounts
 
@@ -177,7 +184,7 @@ def build_stripe_history(rng: random.Random, accounts: list[dict], now: datetime
                     created -= timedelta(days=rng.randint(0, 2))
         customers.append({
             "stripe_id": customer_id,
-            "created_at": _messy_timestamp(created, rng),
+            "created_at": _api_timestamp(created, rng),
             "payload": _json({
                 "id": customer_id,
                 "object": "customer",
@@ -199,21 +206,22 @@ def build_stripe_history(rng: random.Random, accounts: list[dict], now: datetime
             }),
         })
 
-        plan_price = account["mrr"] or 99.0
-        currency = _pick(rng, CURRENCIES)
+        plan_price = {"Starter": 29, "Growth": 99, "Scale": 299, "Enterprise": 1200}[account["plan"]]
+        currency = "eur"
+        # Product MRR and acquisition reports are EUR; avoid invented FX.
         # Clamped to the anchor for the same reason billing_end is: an account
         # created near `now` would otherwise get a subscription dated after it.
         started = min(created + timedelta(days=rng.randint(0, 5)), now)
         subscription_id = f"sub_{rng.getrandbits(48):012x}"
         period_end = started + timedelta(days=30)
-        status = "trialing" if account["trial_ends_at"] else "active"
+        status = "trialing" if account["trial_ends_at"] and account["trial_ends_at"] > now else "active"
 
         subscription = {
             "stripe_id": subscription_id,
             "customer_id": customer_id,
             "status": status,
-            "created_at": _messy_timestamp(started, rng),
-            "current_period_end": _messy_timestamp(period_end, rng),
+            "created_at": _api_timestamp(started, rng),
+            "current_period_end": _api_timestamp(period_end, rng),
             "payload": None,
         }
 
@@ -221,9 +229,13 @@ def build_stripe_history(rng: random.Random, accounts: list[dict], now: datetime
         # A churn date can be later than the anchor, and billing it out to
         # that date produced charges and refunds stamped in the future.
         billing_end = min(account["churned_at"], now) if account["churned_at"] else now
+        price_id = f"price_{rng.getrandbits(32):08x}"
         cycle = started
+        current_period_start = started
         while cycle < billing_end:
-            cycle_end = min(cycle + timedelta(days=30), billing_end)
+            period_end = cycle + timedelta(days=30)
+            current_period_start = cycle
+            cycle_end = min(period_end, billing_end)
             failed = rng.random() < 0.035
             canceled = account["churned_at"] is not None and cycle_end >= account["churned_at"]
             amount = plan_price if not account["trial_ends_at"] or cycle > account["trial_ends_at"] else 0.0
@@ -235,7 +247,7 @@ def build_stripe_history(rng: random.Random, accounts: list[dict], now: datetime
                 "customer_id": customer_id,
                 "subscription_id": subscription_id,
                 "status": invoice_status,
-                "created_at": _messy_timestamp(cycle, rng),
+                "created_at": _api_timestamp(cycle, rng),
                 "payload": _json({
                     "id": invoice_id,
                     "object": "invoice",
@@ -260,8 +272,8 @@ def build_stripe_history(rng: random.Random, accounts: list[dict], now: datetime
                             "currency": currency,
                             "description": f"{account['plan']} plan",
                             "period": {"start": _timestamp(cycle), "end": _timestamp(cycle_end)},
-                            "price": {"id": f"price_{rng.getrandbits(32):08x}"},
-                            "quantity": account["seats"],
+                            "price": {"id": price_id},
+                            "quantity": 1,
                         }],
                         "has_more": False,
                     },
@@ -274,12 +286,21 @@ def build_stripe_history(rng: random.Random, accounts: list[dict], now: datetime
                 }),
             })
 
+            if failed:
+                subscription["status"] = "past_due"
+            elif subscription["status"] == "past_due":
+                subscription["status"] = "active"
+
             if amount > 0 and not failed:
                 charge = _make_charge(
                     rng, customer_id, subscription_id, amount, currency,
                     cycle, account, invoice_id,
                 )
                 charges.append(charge)
+                invoice_payload = json.loads(invoices[-1]["payload"])
+                invoice_payload["charge"] = charge["charge_id"]
+                invoice_payload["payment_intent"] = json.loads(charge["payload"])["payment_intent"]
+                invoices[-1]["payload"] = _json(invoice_payload)
                 _append_balance(rng, balance, charge, account, cycle_end)
                 if canceled or rng.random() < 0.02:
                     refund = _make_refund(rng, charge, cycle_end)
@@ -289,21 +310,23 @@ def build_stripe_history(rng: random.Random, accounts: list[dict], now: datetime
             elif failed:
                 # A past-due invoice leaves a failed payment intent behind. Real
                 # revenue reporting has to exclude these, which is the point.
+                failed_charge_id = f"ch_{rng.getrandbits(48):012x}"
+                failed_at = min(cycle + timedelta(days=3), now)
                 charges.append({
-                    "charge_id": f"ch_{rng.getrandbits(48):012x}",
+                    "charge_id": failed_charge_id,
                     "customer_id": customer_id,
                     "status": "failed",
                     "currency": currency,
                     "amount": str(int(amount * 100)),
-                    "created_at": _messy_timestamp(cycle + timedelta(days=3), rng),
+                    "created_at": _api_timestamp(failed_at, rng),
                     "payload": _json({
-                        "id": f"ch_{rng.getrandbits(48):012x}",
+                        "id": failed_charge_id,
                         "object": "charge",
                         "amount": int(amount * 100),
                         "amount_captured": 0,
                         "amount_refunded": 0,
                         "captured": False,
-                        "created": _timestamp(cycle + timedelta(days=3)),
+                        "created": _timestamp(failed_at),
                         "currency": currency,
                         "customer": customer_id,
                         "failure_code": _pick(rng, FAILURE_CODES),
@@ -317,15 +340,18 @@ def build_stripe_history(rng: random.Random, accounts: list[dict], now: datetime
 
             if canceled:
                 subscription["status"] = "canceled"
-                subscription["current_period_end"] = _messy_timestamp(cycle_end, rng)
+                subscription["current_period_end"] = _api_timestamp(cycle_end, rng)
                 break
             cycle = cycle_end
 
+        subscription["current_period_end"] = _api_timestamp(period_end, rng)
         subscription["payload"] = _json({
             "id": subscription_id,
             "object": "subscription",
-            "cancel_at_period_end": subscription["status"] == "canceled",
-            "canceled_at": _timestamp(account["churned_at"]) if account["churned_at"] else None,
+            "cancel_at_period_end": False,
+            "canceled_at": _timestamp(account["churned_at"]) if subscription["status"] == "canceled" else None,
+            "ended_at": _timestamp(account["churned_at"]) if subscription["status"] == "canceled" else None,
+            "current_period_start": _timestamp(current_period_start),
             "created": _timestamp(started),
             "currency": currency,
             "current_period_end": _timestamp(period_end),
@@ -335,21 +361,21 @@ def build_stripe_history(rng: random.Random, accounts: list[dict], now: datetime
                 "data": [{
                     "id": f"si_{rng.getrandbits(32):08x}",
                     "object": "subscription_item",
-                    "price": {"id": f"price_{rng.getrandbits(32):08x}",
+                    "price": {"id": price_id,
                               "object": "price",
                               "unit_amount": int(plan_price * 100),
                               "currency": currency,
                               "recurring": {"interval": "month"}},
-                    "quantity": account["seats"],
+                    "quantity": 1,
                 }],
                 "has_more": False,
             },
             "livemode": False,
             "metadata": {"account_id": account["account_id"]},
-            "plan": {"id": f"price_{rng.getrandbits(32):08x}"},
+            "plan": {"id": price_id},
             "start_date": _timestamp(started),
             "status": subscription["status"],
-            "subscription_schedule": None,
+            "schedule": None,
         })
         subscriptions.append(subscription)
 
@@ -401,7 +427,8 @@ def _make_charge(rng, customer_id, subscription_id, amount, currency, moment,
         "failure_message": None,
         "fraud_details": {},
         "livemode": False,
-        "metadata": {"account_id": account["account_id"], "invoice": invoice_id},
+        "metadata": {"account_id": account["account_id"],
+                     **({"invoice": invoice_id} if invoice_id else {})},
         "on_behalf_of": None,
         "outcome": {
             "network_status": "approved_by_network",
@@ -456,7 +483,7 @@ def _make_charge(rng, customer_id, subscription_id, amount, currency, moment,
         "status": "succeeded",
         "currency": currency,
         "amount": str(cents),
-        "created_at": _messy_timestamp(moment, rng),
+        "created_at": _api_timestamp(moment, rng),
         "payload": _json(payload),
         "_balance_transaction": payload["balance_transaction"],
         "_fee": fee,
@@ -477,8 +504,6 @@ def _make_refund(rng, charge: dict, moment: datetime) -> dict | None:
     cents = charge["_cents"]
     partial = rng.random() < 0.6
     refunded = int(cents * rng.uniform(0.2, 0.9)) if partial else cents
-    if refunded >= cents:
-        refunded = max(1, cents - rng.randint(1, 200))
     refund_id = f"re_{rng.getrandbits(32):08x}"
     payload = {
         "id": refund_id,
@@ -489,7 +514,7 @@ def _make_refund(rng, charge: dict, moment: datetime) -> dict | None:
         "created": _timestamp(moment),
         "currency": charge["currency"],
         "metadata": {},
-        "payment_intent": None,
+        "payment_intent": json.loads(charge["payload"])["payment_intent"],
         "reason": _pick(rng, [("requested_by_customer", 0.7), ("fraudulent", 0.1),
                               ("duplicate", 0.2)]),
         "status": "succeeded",
@@ -504,11 +529,10 @@ def _make_refund(rng, charge: dict, moment: datetime) -> dict | None:
     return {
         "refund_id": refund_id,
         "charge_id": charge["charge_id"],
-        "created_at": _messy_timestamp(moment, rng),
+        "created_at": _api_timestamp(moment, rng),
         "amount": str(refunded),
         "payload": _json(payload),
-        # Positive: a refund puts money back on the balance. The sign flip
-        # belongs to charges only.
+        # Refund API amounts are positive; the balance impact is negative.
         "_cents": refunded,
         "_balance_transaction": payload["balance_transaction"],
     }
@@ -518,13 +542,13 @@ def _append_balance(rng, balance: list, entry: dict, account: dict,
                     moment: datetime) -> None:
     """A balance transaction row.
 
-    Stripe records the impact on the account balance, so a charge is negative and
-    a refund is positive. `net` is what actually lands in the bank, after the
+    Stripe records the merchant balance: a charge is positive and
+    a refund is negative. `net` is what actually lands in the bank, after the
     processing fee. Getting this sign wrong is the classic tell of invented
     Stripe data.
     """
     is_refund = "refund_id" in entry
-    gross = -entry["_cents"] if not is_refund else entry["_cents"]
+    gross = -entry["_cents"] if is_refund else entry["_cents"]
     fee = 0 if is_refund else entry["_fee"]
     net = gross - fee
     balance.append({
@@ -540,16 +564,16 @@ def _append_balance(rng, balance: list, entry: dict, account: dict,
             "object": "balance_transaction",
             "amount": gross,
             "available_on": _timestamp(moment) + rng.randint(0, 172800),
-            "created": _timestamp(moment),
-            "currency": entry.get("currency", "eur"),
+            "created": json.loads(entry["payload"])["created"],
+            "currency": json.loads(entry["payload"])["currency"],
             "description": None,
             "exchange_rate": None,
             "fee": fee,
-            "fee_details": [{"amount": fee, "currency": entry.get("currency", "eur"),
+            "fee_details": [{"amount": fee, "currency": json.loads(entry["payload"])["currency"],
                              "type": "stripe"}] if fee else [],
             "net": net,
             "reporting_category": "refund" if is_refund else "charge",
-            "source": entry["charge_id"],
+            "source": entry.get("refund_id", entry["charge_id"]),
             "status": "available" if rng.random() > 0.15 else "pending",
             "type": "refund" if is_refund else "charge",
         }),

@@ -1,0 +1,107 @@
+version: 2
+models:
+- name: stg_stripe__charges
+  description: Typed stripe charges; one row per charge_id.
+  config:
+    contract:
+      enforced: true
+    meta:
+      owner: data-platform
+    tags:
+    - staging
+    - stripe
+  data_tests:
+  - dbt_expectations.expect_table_row_count_to_be_between:
+      min_value: 1
+  columns:
+  - name: charge_id
+    description: Stripe charge identifier, including succeeded and failed attempts.
+    data_type: varchar
+    data_tests:
+    - not_null
+    - unique
+  - name: customer_id
+    description: Customer identifier within this source; Stripe IDs use the cus_ prefix.
+    data_type: varchar
+    data_tests:
+    - relationships:
+        to: '{{ ref(''stg_stripe__customers'') }}'
+        field: customer_id
+  - name: status
+    description: Normalized source status, specific to the object type.
+    data_type: varchar
+    data_tests:
+    - accepted_values:
+        values:
+        - succeeded
+        - failed
+  - name: currency
+    description: Currency code. Stripe uses lowercase; acquisition and product reports use uppercase EUR. No FX
+      conversion is modeled.
+    data_type: varchar
+  - name: amount_minor
+    description: Amount in integer minor currency units. Balance movements are signed; charges/refund objects are
+      positive.
+    data_type: integer
+  - name: created_at
+    description: Object creation timestamp in UTC, parsed from the source representation.
+    data_type: timestamp
+    data_tests:
+    - not_null
+  - name: is_captured
+    description: Whether funds were captured; failed charges are false.
+    data_type: boolean
+  - name: is_paid
+    description: Whether the charge/invoice has been paid; failed charges are false.
+    data_type: boolean
+  - name: is_refunded
+    description: True only when the full charge amount has been refunded.
+    data_type: boolean
+  - name: amount_refunded_minor
+    description: Cumulative refunded amount on the parent charge in minor currency units.
+    data_type: integer
+  - name: risk_level
+    description: Risk level reported by the source.
+    data_type: varchar
+  - name: risk_score
+    description: Synthetic Stripe fraud risk score from 0 to 87; null on failed charges.
+    data_type: integer
+    data_tests:
+    - dbt_expectations.expect_column_values_to_be_between:
+        min_value: 0
+  - name: card_brand
+    description: Card brand reported by the source.
+    data_type: varchar
+  - name: card_last4
+    description: Last four card digits as text, preserving leading zeros.
+    data_type: varchar
+  - name: card_country
+    description: Card country reported by the source.
+    data_type: varchar
+  - name: billing_country
+    description: Billing country reported by the source.
+    data_type: varchar
+  - name: balance_transaction_id
+    description: Linked Stripe ledger entry; null when a charge failed.
+    data_type: varchar
+    data_tests:
+    - relationships:
+        to: '{{ ref(''stg_stripe__balance_transactions'') }}'
+        field: txn_id
+  - name: payment_intent_id
+    description: Linked payment intent ID; intent objects are outside the modeled subset.
+    data_type: varchar
+  - name: account_id
+    description: Product account identifier used to join billing and product analytics.
+    data_type: varchar
+    data_tests:
+    - relationships:
+        to: '{{ ref(''stg_product__accounts'') }}'
+        field: account_id
+  - name: failure_code
+    description: Stripe failure code on failed charges; null on successful charges.
+    data_type: varchar
+  - name: payload
+    description: Synthetic API object snapshot JSON, pinned to the modeled Stripe 2024-06-20 schema; not a webhook
+      envelope.
+    data_type: json

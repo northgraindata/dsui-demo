@@ -14,10 +14,7 @@
 -- boring answer, and the boring answer is the useful one.
 
 with revenue as (
-    -- Aggregated to the month here rather than joined on a truncated key.
-    -- Leaving it daily made the join fan out to one row per day, so the model
-    -- reported 286 rows for 23 months and each row carried a single day's
-    -- revenue instead of the month's.
+    -- EUR cash movement for each month.
     select
         date_trunc('month', revenue_date)::date as month,
         sum(gross_minor)    / 100.0 as gross_revenue,
@@ -35,12 +32,7 @@ stripe_billing as (
         sum(case when status = 'paid' then 1 else 0 end) as paid_invoices,
         sum(case when status = 'open' then 1 else 0 end) as open_invoices,
         sum(case when status = 'draft' then 1 else 0 end) as draft_invoices
-    from (
-        select
-            status,
-            {{ parse_timestamp('created_at') }} as created_at
-        from {{ source('landing', 'stripe_invoices') }}
-    )
+    from {{ ref('stg_stripe__invoices') }}
     group by 1
 ),
 
@@ -51,7 +43,7 @@ product_billing as (
         count(*) filter (where lifecycle_status = 'churned')   as churned_accounts,
         count(*) filter (where lifecycle_status = 'trialing')  as trialing_accounts,
         sum(mrr) filter (where lifecycle_status = 'active')   as mrr_from_product_db
-    from {{ ref('stg_accounts') }}
+    from {{ ref('stg_product__accounts') }}
     group by 1
 ),
 
@@ -61,12 +53,7 @@ stripe_billing_counts as (
         count(*) filter (where lower(status) = 'active')   as active_subscriptions_stripe,
         count(*) filter (where lower(status) = 'canceled') as canceled_subscriptions_stripe,
         count(*) filter (where lower(status) = 'past_due') as past_due_subscriptions
-    from (
-        select
-            lower(status) as status,
-            {{ parse_timestamp('created_at') }} as created_at
-        from {{ source('landing', 'stripe_subscriptions') }}
-    )
+    from {{ ref('stg_stripe__subscriptions') }}
     group by 1
 ),
 
@@ -92,22 +79,12 @@ engagement as (
             where event = '$feature_flag_called'
               and feature_flag_variant = 'treatment'
         )                                                   as accounts_seen_treatment
-    from {{ ref('stg_posthog_events') }}
+    from {{ ref('stg_posthog__events') }}
     group by 1
 ),
 
--- A spine of months, built from whichever sources have data.
---
--- Chained full outer joins were the obvious way to write this and were wrong:
--- the revenue side is daily while every other side is monthly, so joining on
--- the raw key matched a day against a month start, produced one row per day with
--- every other figure null, and fanned out into duplicates. A spine makes the
--- grain explicit and every join a simple left join on an already-monthly key.
+-- Each input is aggregated to its grain before combining metrics.
 month_spine as (
-    -- `union` rather than `union all` plus a wrapping subquery, and every
-    -- reference qualified. The spine column and each source column are all
-    -- called `month`, and an unqualified `month` inside the set was ambiguous
-    -- about which of them it meant.
     select revenue.month from revenue
     union select product_billing.month from product_billing
     union select stripe_billing_counts.month from stripe_billing_counts

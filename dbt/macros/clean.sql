@@ -31,29 +31,14 @@
 
 
 {% macro parse_money(column_name) -%}
+    {% set cleaned = "regexp_replace(trim(" ~ column_name ~ "), '[^0-9,.-]', '', 'g')" %}
     case
         when {{ column_name }} is null or trim({{ column_name }}) = '' then null
-
-        {# "1,234.56": the comma groups thousands, the dot is the decimal.
-           This comment uses the plain form on purpose. The whitespace-stripping
-           form strips the surrounding newlines and welds this branch onto the
-           previous one, which produced a parse error nobody could see in the
-           macro source. #}
-        when contains({{ column_name }}, ',')
-            and contains({{ column_name }}, '.')
-            and strpos({{ column_name }}, ',') < strpos({{ column_name }}, '.')
-        then cast(replace({{ column_name }}, ',', '') as double)
-
-        {# "1234,56": a decimal comma and nothing to group. #}
-        when contains({{ column_name }}, ',') and not contains({{ column_name }}, '.')
-        then cast(replace({{ column_name }}, ',', '.') as double)
-
-        else cast(
-            replace(
-                replace(replace({{ column_name }}, '$', ''), 'EUR', ''),
-                ',', ''
-            ) as double
-        )
+        when contains({{ cleaned }}, ',') and contains({{ cleaned }}, '.')
+        then cast(replace({{ cleaned }}, ',', '') as double)
+        when contains({{ cleaned }}, ',')
+        then cast(replace({{ cleaned }}, ',', '.') as double)
+        else cast({{ cleaned }} as double)
     end
 {%- endmacro %}
 

@@ -1,0 +1,31 @@
+version: 2
+sources:
+  - name: tour_landing
+    schema: landing
+    description: Nine deterministic orders extracted from PostgreSQL for the developer investigation.
+    tables:
+      - name: demo_tour_orders
+        description: Checkout status changes from paid to completed over three fixed days.
+models:
+  - name: fct_tour_orders
+    description: Intentional paid-only regression for the developer tour; separate from commerce reporting.
+    config:
+      contract:
+        enforced: true
+    columns:
+      - name: order_id
+        data_type: varchar
+        description: Stable tour order identifier.
+        tests: [unique, not_null]
+      - name: ordered_on
+        data_type: date
+        description: Synthetic order date.
+        tests: [not_null]
+      - name: status
+        data_type: varchar
+        description: Checkout status; this deliberately buggy mart accepts only paid.
+        tests: [not_null]
+      - name: amount
+        data_type: integer
+        description: Synthetic order revenue in whole currency units.
+        tests: [not_null]

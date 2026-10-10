@@ -1,0 +1,48 @@
+version: 2
+models:
+- name: stg_ecommerce__orders
+  description: Typed orders; one row per order_id.
+  config:
+    contract:
+      enforced: true
+    meta:
+      owner: data-platform
+    tags:
+    - staging
+    - ecommerce
+  data_tests:
+  - dbt_expectations.expect_table_row_count_to_be_between:
+      min_value: 1
+  columns:
+  - name: order_id
+    description: Order id within the originating source.
+    data_type: varchar
+    data_tests:
+    - not_null
+    - unique
+  - name: customer_id
+    description: Customer identifier within this source; Stripe IDs use the cus_ prefix.
+    data_type: varchar
+    data_tests:
+    - relationships:
+        to: '{{ ref(''stg_ecommerce__customers'') }}'
+        field: customer_id
+  - name: placed_at
+    description: Placed at timestamp in UTC; null if not applicable.
+    data_type: timestamp
+  - name: status
+    description: Normalized source status, specific to the object type.
+    data_type: varchar
+  - name: currency
+    description: Currency code. Stripe uses lowercase; acquisition and product reports use uppercase EUR. No FX
+      conversion is modeled.
+    data_type: varchar
+  - name: total
+    description: Order total in its original currency; currencies are not summed together.
+    data_type: double
+  - name: channel
+    description: Channel reported by the source.
+    data_type: varchar
+  - name: coupon_code
+    description: Coupon code reported by the source.
+    data_type: varchar

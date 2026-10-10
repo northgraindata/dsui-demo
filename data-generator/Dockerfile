@@ -27,7 +27,9 @@ RUN pip install --no-cache-dir pyflakes==3.2.0 \
 # sleeps for a jittered interval, so the demo has a pulse rather than a
 # frozen snapshot. `serve` reseeds itself when the event table passes its
 # cap or the seed reaches its max age.
-CMD ["sh", "-c", "python generate.py seed \
+USER 50000:0
+
+CMD ["sh", "-c", "rm -f /out/seed-ready.json && python generate.py seed \
   --customers ${DEMO_CUSTOMERS:-5000} \
   --orders ${DEMO_ORDERS:-60000} \
   --accounts ${DEMO_ACCOUNTS:-1200} \
@@ -35,6 +37,6 @@ CMD ["sh", "-c", "python generate.py seed \
   --customers ${DEMO_CUSTOMERS:-5000} \
   --orders ${DEMO_ORDERS:-60000} \
   --accounts ${DEMO_ACCOUNTS:-1200} \
-  --cap ${DEMO_ROW_CAP:-400000} \
+  --cap ${DEMO_ROW_CAP:-1000000} \
   --max-age-days ${DEMO_MAX_AGE_DAYS:-30} \
   --tick-seconds ${DEMO_TICK_SECONDS:-300}"]

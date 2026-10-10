@@ -1,0 +1,43 @@
+version: 2
+models:
+- name: stg_ecommerce__refunds
+  description: Typed refunds; one row per refund_id.
+  config:
+    contract:
+      enforced: true
+    meta:
+      owner: data-platform
+    tags:
+    - staging
+    - ecommerce
+  data_tests:
+  - dbt_expectations.expect_table_row_count_to_be_between:
+      min_value: 1
+  columns:
+  - name: refund_id
+    description: Refund identifier; refund objects store a positive amount returned to the customer.
+    data_type: varchar
+    data_tests:
+    - not_null
+    - unique
+  - name: payment_id
+    description: Payment id within the originating source.
+    data_type: varchar
+    data_tests:
+    - relationships:
+        to: '{{ ref(''stg_ecommerce__payments'') }}'
+        field: payment_id
+  - name: order_id
+    description: Order id within the originating source.
+    data_type: varchar
+  - name: created_at
+    description: Object creation timestamp in UTC, parsed from the source representation.
+    data_type: timestamp
+    data_tests:
+    - not_null
+  - name: amount
+    description: Amount in the original currency major units.
+    data_type: double
+  - name: reason
+    description: Reason reported by the source.
+    data_type: varchar

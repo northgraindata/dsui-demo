@@ -11,6 +11,11 @@ config-version: 2
 
 profile: dsui_demo
 
+require-dbt-version: [">=1.9.0", "<2.0.0"]
+
+vars:
+  "dbt_date:time_zone": UTC
+
 model-paths: ["models"]
 macro-paths: ["macros"]
 test-paths: ["tests"]

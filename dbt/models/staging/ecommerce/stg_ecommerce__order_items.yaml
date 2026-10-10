@@ -1,0 +1,48 @@
+version: 2
+models:
+- name: stg_ecommerce__order_items
+  description: E-commerce lines, one row per order_id and sku. Known orphan order references remain visible and
+    have a warning test.
+  config:
+    contract:
+      enforced: true
+    meta:
+      owner: data-platform
+    tags:
+    - staging
+    - ecommerce
+  data_tests:
+  - dbt_expectations.expect_table_row_count_to_be_between:
+      min_value: 1
+  - dbt_utils.unique_combination_of_columns:
+      combination_of_columns:
+      - order_id
+      - sku
+  columns:
+  - name: order_id
+    description: Order id within the originating source.
+    data_type: varchar
+    data_tests:
+    - not_null
+    - relationships:
+        to: '{{ ref(''stg_ecommerce__orders'') }}'
+        field: order_id
+        config:
+          severity: warn
+  - name: sku
+    description: Product stock keeping unit, shared by the catalog and order items.
+    data_type: varchar
+    data_tests:
+    - not_null
+    - relationships:
+        to: '{{ ref(''stg_ecommerce__products'') }}'
+        field: sku
+  - name: quantity
+    description: Number of purchased units; Stripe subscription quantity is one for flat account pricing.
+    data_type: integer
+  - name: unit_price
+    description: Unit price in the original currency major units.
+    data_type: double
+  - name: discount
+    description: Absolute line discount in the order currency, not a percentage.
+    data_type: double

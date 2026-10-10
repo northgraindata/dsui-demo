@@ -1,0 +1,44 @@
+version: 2
+sources:
+- name: landing
+  schema: landing
+  description: Synthetic public dataset; raw columns retain their export representation.
+  tables:
+  - name: ga4_sessions
+    description: Raw ga4 sessions; one text-typed Parquet landing file.
+    columns:
+    - name: session_id
+      data_type: varchar
+      description: Raw export value as text. Synthetic anonymous session identifier; not an account identity.
+    - name: occurred_at
+      data_type: varchar
+      description: Raw export value as text. UTC timestamp when the event or session occurred.
+    - name: country
+      data_type: varchar
+      description: Raw export value as text. Uppercase two-letter country code in the normalized demo export.
+    - name: device_category
+      data_type: varchar
+      description: Raw export value as text. Device category reported by the source.
+    - name: traffic_source
+      data_type: varchar
+      description: Raw export value as text. Traffic source reported by the source.
+    - name: source_medium
+      data_type: varchar
+      description: Raw export value as text. Source medium reported by the source.
+    - name: campaign
+      data_type: varchar
+      description: Raw export value as text. Campaign reported by the source.
+    - name: session_number
+      data_type: varchar
+      description: Raw export value as text. Session number reported by the source.
+    - name: engagement_time_msec
+      data_type: varchar
+      description: Raw export value as text. Session engagement duration in milliseconds.
+    - name: is_bounce
+      data_type: varchar
+      description: 'Raw export value as text. Synthetic bounce indicator: 1 when engagement is under 800 ms, otherwise
+        0; not the GA4 engagement definition.'
+  loader: demo_generator_and_airflow_parquet_extract
+  meta:
+    owner: data-platform
+    synthetic: true

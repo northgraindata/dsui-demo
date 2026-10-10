@@ -1,0 +1,74 @@
+version: 2
+models:
+- name: stg_product__accounts
+  description: Product accounts, one row per account_id; current EUR MRR and lifecycle. Duplicate markers are excluded.
+  config:
+    contract:
+      enforced: true
+    meta:
+      owner: data-platform
+    tags:
+    - staging
+    - product
+  data_tests:
+  - dbt_expectations.expect_table_row_count_to_be_between:
+      min_value: 1
+  columns:
+  - name: account_id
+    description: Product account identifier used to join billing and product analytics.
+    data_type: varchar
+    data_tests:
+    - not_null
+    - unique
+  - name: name
+    description: Name reported by the source.
+    data_type: varchar
+  - name: plan
+    description: Plan reported by the source.
+    data_type: varchar
+    data_tests:
+    - accepted_values:
+        values:
+        - starter
+        - growth
+        - scale
+        - enterprise
+  - name: seats
+    description: Seats reported by the source.
+    data_type: integer
+  - name: country
+    description: Uppercase two-letter country code in the normalized demo export.
+    data_type: varchar
+  - name: created_at
+    description: Object creation timestamp in UTC, parsed from the source representation.
+    data_type: timestamp
+    data_tests:
+    - not_null
+  - name: status
+    description: Normalized source status, specific to the object type.
+    data_type: varchar
+  - name: mrr
+    description: Current product monthly recurring revenue in EUR; zero for churned accounts.
+    data_type: double
+  - name: trial_ends_at
+    description: Trial ends at timestamp in UTC; null if not applicable.
+    data_type: timestamp
+  - name: churned_at
+    description: Churned at timestamp in UTC; null if not applicable.
+    data_type: timestamp
+  - name: is_paying
+    description: True when current product MRR is greater than zero.
+    data_type: boolean
+  - name: age_days
+    description: Days between account creation and the build date.
+    data_type: bigint
+  - name: lifecycle_status
+    description: Current lifecycle derived from churn date, trial expiry and current MRR.
+    data_type: varchar
+    data_tests:
+    - accepted_values:
+        values:
+        - active
+        - inactive
+        - trialing
+        - churned

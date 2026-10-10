@@ -1,0 +1,45 @@
+version: 2
+sources:
+- name: landing
+  schema: landing
+  description: Synthetic public dataset; raw columns retain their export representation.
+  tables:
+  - name: gsc_daily
+    description: Raw gsc daily; one text-typed Parquet landing file.
+    columns:
+    - name: date
+      data_type: varchar
+      description: Raw export value as text. Date reported by the source.
+    - name: query
+      data_type: varchar
+      description: Raw export value as text. Query reported by the source.
+    - name: page
+      data_type: varchar
+      description: Raw export value as text. Page reported by the source.
+    - name: country
+      data_type: varchar
+      description: Raw export value as text. Uppercase two-letter country code in the normalized demo export.
+    - name: device
+      data_type: varchar
+      description: Raw export value as text. Device reported by the source.
+    - name: search_appearance
+      data_type: varchar
+      description: Raw export value as text. Search appearance reported by the source.
+    - name: clicks
+      data_type: varchar
+      description: Raw export value as text. Clicks count for this report dimension row.
+    - name: impressions
+      data_type: varchar
+      description: Raw export value as text. Impressions count for this report dimension row.
+    - name: ctr
+      data_type: varchar
+      description: Raw export value as text. Click-through rate as a fraction between zero and one in this normalized
+        demo export.
+    - name: position
+      data_type: varchar
+      description: Raw export value as text. Search Console average search position, fractional rather than an integer
+        rank.
+  loader: demo_generator_and_airflow_parquet_extract
+  meta:
+    owner: data-platform
+    synthetic: true

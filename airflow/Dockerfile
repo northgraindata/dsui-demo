@@ -7,23 +7,24 @@
 
 FROM apache/airflow:2.10.5-python3.12
 
-ARG AIRFLOW_VERSION=2.10.5
-
-RUN pip install --no-cache-dir \
-    "apache-airflow==${AIRFLOW_VERSION}" \
-    "apache-airflow-providers-postgres==5.14.0" \
-    "dbt-duckdb==1.9.2" \
-    "pyarrow==18.1.0" \
-    "psycopg[binary]==3.2.3"
+# dbt and Airflow require incompatible protobuf ranges; keep separate environments.
+USER root
+RUN python -m venv /opt/dbt && chown -R airflow:root /opt/dbt
+USER airflow
+RUN pip install --no-cache-dir duckdb==1.2.2 pyarrow==18.1.0 "psycopg[binary]==3.2.3" boto3==1.35.99
+RUN /opt/dbt/bin/pip install --no-cache-dir dbt-core==1.9.10 dbt-duckdb==1.9.2 duckdb==1.2.2
 
 ENV AIRFLOW__CORE__LOAD_EXAMPLES=False \
     AIRFLOW__CORE__EXECUTOR=LocalExecutor \
-    AIRFLOW__SCHEDULING__MIN_FILE_PROCESS_INTERVAL=30 \
-    AIRFLOW__API_AUTH__JWT_SECRET=${AIRFLOW_JWT_SECRET:-dsui-demo-jwt-secret} \
+    AIRFLOW__CORE__DAGS_FOLDER=/opt/demo/dags \
     DBT_PROFILES_DIR=/dbt \
-    DEMO_LANDING_DIR=/out \
+    DEMO_LANDING_DIR=/out/landing \
     DEMO_DUCKDB_NEXT=/out/next/demo.duckdb \
     DEMO_DUCKDB_PUBLISHED=/out/demo.duckdb \
-    DEMO_DBT_PROJECT=/dbt
+    DBT_SEND_ANONYMOUS_USAGE_STATS=false \
+    PYTHONPATH=/opt/demo/dags
 
-WORKDIR /airflow
+COPY --chown=airflow:root dbt /dbt
+RUN /opt/dbt/bin/dbt deps --project-dir /dbt --profiles-dir /dbt
+COPY --chown=airflow:root airflow /opt/demo
+CMD ["python", "/opt/demo/bootstrap.py"]

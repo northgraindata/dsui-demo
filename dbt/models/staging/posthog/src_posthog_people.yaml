@@ -1,0 +1,22 @@
+version: 2
+sources:
+- name: landing
+  schema: landing
+  description: Synthetic public dataset; raw columns retain their export representation.
+  tables:
+  - name: posthog_people
+    description: Raw posthog people; one text-typed Parquet landing file.
+    columns:
+    - name: distinct_id
+      data_type: varchar
+      description: Raw export value as text. PostHog person identifier; events retain the original identity.
+    - name: created_at
+      data_type: varchar
+      description: Raw export value as text. Object creation timestamp in UTC, parsed from the source representation.
+    - name: properties
+      data_type: varchar
+      description: Raw export value as text. Event/person properties JSON, retaining vendor-specific property names.
+  loader: demo_generator_and_airflow_parquet_extract
+  meta:
+    owner: data-platform
+    synthetic: true

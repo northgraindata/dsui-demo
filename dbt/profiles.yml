@@ -12,3 +12,5 @@ dsui_demo:
       path: "{{ env_var('DEMO_DUCKDB_NEXT', 'next/demo.duckdb') }}"
       schema: marts
       threads: 4
+      settings:
+        TimeZone: UTC

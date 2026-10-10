@@ -1,0 +1,77 @@
+version: 2
+models:
+- name: stg_gsc__daily
+  description: Search analytics at date/query/page/country/device/appearance grain. Position is fractional.
+  config:
+    contract:
+      enforced: true
+    meta:
+      owner: data-platform
+    tags:
+    - staging
+    - search_console
+  data_tests:
+  - dbt_expectations.expect_table_row_count_to_be_between:
+      min_value: 1
+  - dbt_utils.unique_combination_of_columns:
+      combination_of_columns:
+      - report_date
+      - query
+      - page
+      - country
+      - device
+      - search_appearance
+  columns:
+  - name: report_date
+    description: UTC report day; report metrics are aggregated only within this day.
+    data_type: timestamp
+    data_tests:
+    - not_null
+  - name: query
+    description: Query reported by the source.
+    data_type: varchar
+    data_tests:
+    - not_null
+  - name: page
+    description: Page reported by the source.
+    data_type: varchar
+    data_tests:
+    - not_null
+  - name: country
+    description: Uppercase two-letter country code in the normalized demo export.
+    data_type: varchar
+    data_tests:
+    - not_null
+  - name: device
+    description: Device reported by the source.
+    data_type: varchar
+    data_tests:
+    - not_null
+  - name: search_appearance
+    description: Search appearance reported by the source.
+    data_type: varchar
+    data_tests:
+    - not_null
+  - name: clicks
+    description: Clicks count for this report dimension row.
+    data_type: bigint
+  - name: impressions
+    description: Impressions count for this report dimension row.
+    data_type: bigint
+  - name: ctr
+    description: Click-through rate as a fraction between zero and one in this normalized demo export.
+    data_type: double
+    data_tests:
+    - dbt_expectations.expect_column_values_to_be_between:
+        min_value: 0
+        max_value: 1
+  - name: position
+    description: Search Console average search position, fractional rather than an integer rank.
+    data_type: double
+    data_tests:
+    - dbt_expectations.expect_column_values_to_be_between:
+        min_value: 1
+        max_value: 100
+  - name: recomputed_ctr
+    description: Clicks divided by impressions, rounded to three decimal places; null if impressions are zero.
+    data_type: double

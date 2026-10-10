@@ -19,56 +19,30 @@ from __future__ import annotations
 
 import logging
 import os
-import shutil
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from pathlib import Path
 
 import pendulum
 from airflow import DAG
-from airflow.operators.bash import BashOperator
 from airflow.operators.python import PythonOperator
 
-import extract
+import pipeline
 
 log = logging.getLogger(__name__)
 
-LANDING_DIR = Path(os.environ.get("DEMO_LANDING_DIR", "/out"))
-NEXT_DB = Path(os.environ.get("DEMO_DUCKDB_NEXT", "/out/next/demo.duckdb"))
 PUBLISHED_DB = Path(os.environ.get("DEMO_DUCKDB_PUBLISHED", "/out/demo.duckdb"))
-DBT_PROJECT = Path(os.environ.get("DEMO_DBT_PROJECT", "/dbt"))
-MARKER = LANDING_DIR / "snapshot.json"
 
 
-def extract_landing(**context) -> None:
-    counts = extract.run()
-    total = sum(counts.values())
-    log.info("extracted %d rows across %d tables", total, len(counts))
+def extract_landing(**context):
+    return pipeline.extract_landing()
 
 
-def publish_snapshot(**context) -> None:
-    """Moves the freshly built database into place.
+def build_marts(**context):
+    pipeline.build_marts()
 
-    If the rename target cannot be replaced, the newly built file is left where
-    it is rather than deleted: it is the only evidence of what went wrong, and
-    the previously published snapshot is still serving.
-    """
-    if not NEXT_DB.exists():
-        raise RuntimeError(f"dbt produced no database at {NEXT_DB}")
 
-    PUBLISHED_DB.parent.mkdir(parents=True, exist_ok=True)
-    previous = PUBLISHED_DB.with_suffix(".duckdb.previous")
-
-    if PUBLISHED_DB.exists():
-        shutil.copy2(PUBLISHED_DB, previous)
-    os.replace(NEXT_DB, PUBLISHED_DB)
-
-    MARKER.write_text(
-        f'{{"published_at": "{datetime.now(timezone.utc).isoformat()}", '
-        f'"dag_run": "{context["run_id"]}"}}\n',
-        encoding="utf-8",
-    )
-    size_mb = PUBLISHED_DB.stat().st_size / 1_048_576
-    log.info("published %s (%.1f MiB) for run %s", PUBLISHED_DB, size_mb, context["run_id"])
+def publish_snapshot(**context):
+    pipeline.publish_snapshot(context['run_id'])
 
 
 def summarise(**context) -> None:
@@ -131,13 +105,7 @@ with DAG(
         python_callable=extract_landing,
     )
 
-    build_task = BashOperator(
-        task_id="build_marts",
-        bash_command=(
-            f"cd {DBT_PROJECT} && dbt build "
-            f"--project-dir {DBT_PROJECT} --profiles-dir {DBT_PROJECT}"
-        ),
-    )
+    build_task = PythonOperator(task_id='build_marts', python_callable=build_marts)
 
     publish_task = PythonOperator(
         task_id="publish_snapshot",

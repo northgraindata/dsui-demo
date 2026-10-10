@@ -1,0 +1,9 @@
+name: dsui_tour_repair
+version: 1.0.0
+config-version: 2
+profile: dsui_tour_repair
+model-paths: [models]
+test-paths: [tests]
+models:
+  dsui_tour_repair:
+    +materialized: table

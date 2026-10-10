@@ -1,0 +1,34 @@
+version: 2
+sources:
+- name: landing
+  schema: landing
+  description: Synthetic public dataset; raw columns retain their export representation.
+  tables:
+  - name: payments
+    description: Raw payments; one text-typed Parquet landing file.
+    columns:
+    - name: payment_id
+      data_type: varchar
+      description: Raw export value as text. Payment id within the originating source.
+    - name: order_id
+      data_type: varchar
+      description: Raw export value as text. Order id within the originating source.
+    - name: method
+      data_type: varchar
+      description: Raw export value as text. Method reported by the source.
+    - name: status
+      data_type: varchar
+      description: Raw export value as text. Normalized source status, specific to the object type.
+    - name: amount
+      data_type: varchar
+      description: Raw export value as text. Amount in the original currency major units.
+    - name: captured_at
+      data_type: varchar
+      description: Raw export value as text. Captured at timestamp in UTC; null if not applicable.
+    - name: failure_reason
+      data_type: varchar
+      description: Raw export value as text. Failure reason reported by the source.
+  loader: demo_generator_and_airflow_parquet_extract
+  meta:
+    owner: data-platform
+    synthetic: true

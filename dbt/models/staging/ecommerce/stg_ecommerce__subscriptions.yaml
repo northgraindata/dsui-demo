@@ -1,0 +1,47 @@
+version: 2
+models:
+- name: stg_ecommerce__subscriptions
+  description: Typed subscriptions; one row per subscription_id.
+  config:
+    contract:
+      enforced: true
+    meta:
+      owner: data-platform
+    tags:
+    - staging
+    - ecommerce
+  data_tests:
+  - dbt_expectations.expect_table_row_count_to_be_between:
+      min_value: 1
+  columns:
+  - name: subscription_id
+    description: Subscription identifier; one current object snapshot per subscription.
+    data_type: varchar
+    data_tests:
+    - not_null
+    - unique
+  - name: customer_id
+    description: Customer identifier within this source; Stripe IDs use the cus_ prefix.
+    data_type: varchar
+    data_tests:
+    - relationships:
+        to: '{{ ref(''stg_ecommerce__customers'') }}'
+        field: customer_id
+  - name: plan
+    description: Plan reported by the source.
+    data_type: varchar
+  - name: status
+    description: Normalized source status, specific to the object type.
+    data_type: varchar
+  - name: seats
+    description: Seats reported by the source.
+    data_type: integer
+  - name: mrr
+    description: Current product monthly recurring revenue in EUR; zero for churned accounts.
+    data_type: double
+  - name: started_at
+    description: Started at timestamp in UTC; null if not applicable.
+    data_type: timestamp
+  - name: ended_at
+    description: Ended at timestamp in UTC; null if not applicable.
+    data_type: timestamp

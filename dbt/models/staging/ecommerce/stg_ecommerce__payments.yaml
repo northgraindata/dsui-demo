@@ -1,0 +1,44 @@
+version: 2
+models:
+- name: stg_ecommerce__payments
+  description: Typed payments; one row per payment_id.
+  config:
+    contract:
+      enforced: true
+    meta:
+      owner: data-platform
+    tags:
+    - staging
+    - ecommerce
+  data_tests:
+  - dbt_expectations.expect_table_row_count_to_be_between:
+      min_value: 1
+  columns:
+  - name: payment_id
+    description: Payment id within the originating source.
+    data_type: varchar
+    data_tests:
+    - not_null
+    - unique
+  - name: order_id
+    description: Order id within the originating source.
+    data_type: varchar
+    data_tests:
+    - relationships:
+        to: '{{ ref(''stg_ecommerce__orders'') }}'
+        field: order_id
+  - name: method
+    description: Method reported by the source.
+    data_type: varchar
+  - name: status
+    description: Normalized source status, specific to the object type.
+    data_type: varchar
+  - name: amount
+    description: Amount in the original currency major units.
+    data_type: double
+  - name: captured_at
+    description: Captured at timestamp in UTC; null if not applicable.
+    data_type: timestamp
+  - name: failure_reason
+    description: Failure reason reported by the source.
+    data_type: varchar

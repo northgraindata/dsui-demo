@@ -26,6 +26,7 @@ timestamps.
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import os
 import random
@@ -481,7 +482,7 @@ def build_dataset(seed: int, customers: int, orders: int, now: datetime):
         started = row["signup_at"] + timedelta(days=rng.randint(0, 20))
         churned = rng.random() < 0.14
         subscriptions.append({
-            "subscription_id": f"SUB-{rng.randint(100000, 999999)}",
+            "subscription_id": f"SUB-{rng.getrandbits(96):024x}",
             "customer_id": row["customer_id"],
             "plan": plan,
             "status": "cancelled" if churned else "active",
@@ -512,7 +513,7 @@ def build_dataset(seed: int, customers: int, orders: int, now: datetime):
         for _ in range(int(per_day * seasonality(day))):
             customer_id = rng.choice(customer_ids)
             placed = day + timedelta(seconds=rng.randint(0, 86399))
-            order_id = f"ORD-{rng.randint(1000000, 9999999)}"
+            order_id = f"ORD-{rng.getrandbits(96):024x}"
             line_count = min(rng.randint(1, 6), len(skus))
             chosen = rng.sample(skus, line_count)
             total = 0.0
@@ -546,7 +547,7 @@ def build_dataset(seed: int, customers: int, orders: int, now: datetime):
             method = weighted(rng, PAYMENT_METHODS)
             failed = rng.random() < 0.045
             captured = placed + timedelta(seconds=rng.randint(30, 7200))
-            payment_id = f"PAY-{rng.randint(100000, 999999)}"
+            payment_id = f"PAY-{rng.getrandbits(96):024x}"
             payment_rows.append({
                 "payment_id": payment_id,
                 "order_id": order_id,
@@ -559,7 +560,7 @@ def build_dataset(seed: int, customers: int, orders: int, now: datetime):
             })
             if not failed and status in ("refunded", "delivered") and rng.random() < 0.04:
                 refund_rows.append({
-                    "refund_id": f"REF-{rng.randint(100000, 999999)}",
+                    "refund_id": f"REF-{rng.getrandbits(96):024x}",
                     "payment_id": payment_id,
                     "order_id": order_id,
                     "created_at": captured + timedelta(days=rng.randint(1, 21)),
@@ -575,7 +576,7 @@ def build_dataset(seed: int, customers: int, orders: int, now: datetime):
     orphan_count = min(len(item_rows), len(item_rows) // 200)
     if orphan_count:
         for item in rng.sample(item_rows, k=orphan_count):
-            item["order_id"] = f"ORD-{rng.randint(1000000, 9999999)}"
+            item["order_id"] = f"ORD-{rng.getrandbits(96):024x}"
 
     event_rows = []
     for row in customer_rows:
@@ -588,7 +589,7 @@ def build_dataset(seed: int, customers: int, orders: int, now: datetime):
             if occurred > now:
                 occurred = now - timedelta(seconds=rng.randint(0, 600))
             event_rows.append({
-                "event_id": f"EVT-{rng.randint(1000000, 9999999)}",
+                "event_id": f"EVT-{rng.getrandbits(96):024x}",
                 "customer_id": row["customer_id"],
                 "name": weighted(rng, EVENT_NAMES),
                 "occurred_at": occurred,
@@ -633,7 +634,7 @@ def recent_activity(seed: int, count: int, now: datetime):
     for _ in range(count):
         customer_id, country = rng.choice(customers)
         placed = now - timedelta(seconds=rng.randint(5, 900))
-        order_id = f"ORD-{rng.randint(1000000, 9999999)}"
+        order_id = f"ORD-{rng.getrandbits(96):024x}"
         total = 0.0
         for sku in rng.sample(skus, rng.randint(1, 4)):
             quantity = rng.randint(1, 3)
@@ -659,7 +660,7 @@ def recent_activity(seed: int, count: int, now: datetime):
             "coupon_code": rng.choice([None, "WELCOME10"]),
         })
         payments.append({
-            "payment_id": f"PAY-{rng.randint(100000, 999999)}",
+            "payment_id": f"PAY-{rng.getrandbits(96):024x}",
             "order_id": order_id,
             "method": weighted(rng, PAYMENT_METHODS),
             "status": "failed" if failed else "captured",
@@ -669,7 +670,7 @@ def recent_activity(seed: int, count: int, now: datetime):
             "placed_at": placed,
         })
         events.append({
-            "event_id": f"EVT-{rng.randint(1000000, 9999999)}",
+            "event_id": f"EVT-{rng.getrandbits(96):024x}",
             "customer_id": customer_id,
             "name": weighted(rng, EVENT_NAMES),
             "occurred_at": placed,
@@ -800,14 +801,9 @@ def write_exports(tables: dict[str, list[dict]]) -> None:
 
         csv_path = ENVIRONMENT / f"{table}.csv"
         with _atomic(csv_path) as handle:
-            handle.write(",".join(COLUMNS[table]) + "\n")
-            for row in rendered:
-                values = [
-                    "" if value is None else
-                    str(value).replace("\\", "\\\\").replace(",", "\\,")
-                    for value in row
-                ]
-                handle.write(",".join(values) + "\n")
+            writer = csv.writer(handle)
+            writer.writerow(COLUMNS[table])
+            writer.writerows(rendered)
 
         parquet_path = ENVIRONMENT / f"{table}.parquet"
         write_parquet(table, rendered, parquet_path)
@@ -924,6 +920,9 @@ def seed(count_customers: int, count_orders: int, count_accounts: int,
         rng = random.Random(SEED)
         write_postgres(connection, dataset, rng)
     write_exports(dataset)
+    marker = ENVIRONMENT / "seed-ready.json"
+    with _atomic(marker) as handle:
+        json.dump({"seeded_at": now.isoformat(), "tables": len(dataset)}, handle)
     print("seed complete")
 
 
@@ -1061,10 +1060,17 @@ def sources_recent(now: datetime, rng: random.Random, volume: int,
                     "trial_ends_at": None, "churned_at": None, "status": "active",
                     "mrr": 0.0, "name": row[0],
                 })
+            cursor.execute("SELECT stripe_id, payload FROM raw.stripe_customers")
+            customer_by_account = {
+                json.loads(payload)["metadata"]["account_id"]: customer_id
+                for customer_id, payload in cursor.fetchall()
+            }
+            for account in accounts:
+                account["stripe_customer_id"] = customer_by_account.get(account["account_id"])
             cursor.execute("SELECT distinct_id FROM raw.posthog_people LIMIT 20000")
             people = [row[0] for row in cursor.fetchall()]
 
-    accounts = [a for a in accounts if a["created_at"] <= now]
+    accounts = [a for a in accounts if a["created_at"] <= now and a["stripe_customer_id"]]
     tables: dict[str, list[dict]] = {
         "posthog_events": _recent_posthog(rng, people, now, volume),
         "ga4_sessions": _recent_ga4(rng, now, int(volume * 0.6 * burst)),
@@ -1115,7 +1121,7 @@ def _recent_charges(rng: random.Random, accounts: list[dict], now: datetime,
                     volume: int, burst: float) -> dict[str, list[dict]]:
     """New successful charges for existing accounts, plus their balance rows."""
     if not accounts:
-        return []
+        return {}
     charges, balance = [], []
     for _ in range(max(1, int(volume * 0.05 * burst))):
         account = rng.choice(accounts)
@@ -1123,10 +1129,10 @@ def _recent_charges(rng: random.Random, accounts: list[dict], now: datetime,
             "Starter": 29.0, "Growth": 99.0, "Scale": 299.0, "Enterprise": 1200.0,
         }.get(account["plan"], 99.0))
         amount *= rng.choice([1, 1, 1, 1, 1.5, 2])
-        currency = rng.choice(["eur", "eur", "usd", "gbp"])
+        currency = "eur"
         charge = sources._make_charge(
-            rng, f"cus_live{rng.getrandbits(40):010x}", None, amount, currency,
-            now, account, f"in_live{rng.getrandbits(40):010x}",
+            rng, account["stripe_customer_id"], None, amount, currency,
+            now, account, None,
         )
         charges.append(charge)
         sources._append_balance(rng, balance, charge, account, now)
@@ -1182,7 +1188,7 @@ def main() -> int:
     serve_parser.add_argument("--orders", type=int, default=60000)
     serve_parser.add_argument("--accounts", type=int, default=1200)
     serve_parser.add_argument(
-        "--cap", type=int, default=400_000,
+        "--cap", type=int, default=1_000_000,
         help="reseed once the event table passes this row count",
     )
     serve_parser.add_argument(

@@ -27,3 +27,9 @@ venv/
 /airflow/logs/
 
 .DS_Store
+
+# Local CI fixtures
+/.ci/
+
+# Apple Containers local state
+/.state/

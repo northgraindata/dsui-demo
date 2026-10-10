@@ -1,0 +1,39 @@
+version: 2
+sources:
+- name: landing
+  schema: landing
+  description: Synthetic public dataset; raw columns retain their export representation.
+  tables:
+  - name: stripe_balance_transactions
+    description: Raw stripe balance transactions; one text-typed Parquet landing file.
+    columns:
+    - name: txn_id
+      data_type: varchar
+      description: Raw export value as text. Stripe balance transaction identifier, unique across charges and refunds.
+    - name: charge_id
+      data_type: varchar
+      description: Raw export value as text. Stripe charge identifier, including succeeded and failed attempts.
+    - name: type
+      data_type: varchar
+      description: Raw export value as text. Type reported by the source.
+    - name: created_at
+      data_type: varchar
+      description: Raw export value as text. Object creation timestamp in UTC, parsed from the source representation.
+    - name: amount
+      data_type: varchar
+      description: Raw export value as text. Amount in the original currency major units.
+    - name: fee
+      data_type: varchar
+      description: Raw export value as text. Fee reported by the source.
+    - name: net
+      data_type: varchar
+      description: Raw export value as text. Net reported by the source.
+    - name: payload
+      data_type: varchar
+      description: Raw export value as text. Synthetic API object snapshot JSON, pinned to the modeled Stripe 2024-06-20
+        schema; not a webhook envelope.
+  loader: demo_generator_and_airflow_parquet_extract
+  meta:
+    owner: data-platform
+    synthetic: true
+    api_version: '2024-06-20'

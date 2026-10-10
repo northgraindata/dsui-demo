@@ -1,21 +1,4 @@
-{#
-    Materialises the Parquet landing zone as DuckDB views.
-
-    The list of views is read from the directory rather than hardcoded. A
-    hardcoded list drifts: one table was written by the generator, exported, and
-    never picked up here, so it was invisible to the pipeline while still
-    sitting in the landing zone. Deriving it means a table cannot be silently
-    skipped, including one added later.
-
-    Two writers touch this directory. The generator writes a snapshot when it
-    seeds, and the Airflow extract step refreshes it before every dbt build.
-    Both write to a temporary name and rename into place, so a reader never sees
-    a partial file and neither writer can tear the other's output.
-
-    The views land in the `landing` schema, so a visitor browsing `analytics.duckdb`
-    sees the malformed raw tables next to the clean marts with the staging layer
-    in between. Comparing the two is the point.
-#}
+{# Materialize every Parquet file so a published snapshot is self-contained. #}
 
 {% macro landing_views() %}
     {% if execute %}
@@ -35,11 +18,11 @@
             {% set path = row[0] %}
             {% set table = path.split('/')[-1].replace('.parquet', '') %}
             {% do run_query(
-                "create or replace view landing." ~ table ~ " as select * from read_parquet('" ~ path ~ "')"
+                "create or replace table landing." ~ table ~ " as select * from read_parquet('" ~ path ~ "')"
             ) %}
         {% endfor %}
 
-        {% do log('landing: ' ~ (files.rows | length) ~ ' views rebuilt from ' ~ landing_dir, info=false) %}
+        {% do log('landing: ' ~ (files.rows | length) ~ ' raw tables loaded from ' ~ landing_dir, info=false) %}
 
     {% endif %}
 {% endmacro %}

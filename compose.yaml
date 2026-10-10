@@ -86,7 +86,6 @@ services:
       AIRFLOW_DB_USER: ${AIRFLOW_DB_USER:-airflow}
       AIRFLOW_DB_PASSWORD: ${AIRFLOW_DB_PASSWORD:-dsui-demo-airflow}
       AIRFLOW_DB_NAME: airflow
-      AIRFLOW_DB_NAME: airflow
       DEMO_WRITER_USER: ${DEMO_WRITER_USER:-demo_writer}
       DEMO_WRITER_PASSWORD: ${DEMO_WRITER_PASSWORD:-dsui-demo-writer}
       DEMO_READER_USER: ${DEMO_READER_USER:-demo_reader}

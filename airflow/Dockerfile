@@ -11,7 +11,7 @@ FROM apache/airflow:2.10.5-python3.12
 USER root
 RUN python -m venv /opt/dbt && chown -R airflow:root /opt/dbt
 USER airflow
-RUN pip install --no-cache-dir duckdb==1.2.2 pyarrow==18.1.0 "psycopg[binary]==3.2.3" boto3==1.35.99
+RUN pip install --no-cache-dir duckdb==1.2.2 pyarrow==18.1.0 "psycopg[binary]==3.2.3" boto3==1.36.3
 RUN /opt/dbt/bin/pip install --no-cache-dir dbt-core==1.9.10 dbt-duckdb==1.9.2 duckdb==1.2.2
 
 ENV AIRFLOW__CORE__LOAD_EXAMPLES=False \

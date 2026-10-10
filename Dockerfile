@@ -3,7 +3,7 @@
 # installed-plugin browserBundle support needed by the code-repository plugin.
 FROM oven/bun:1.3.12 AS build
 WORKDIR /src
-ARG DSUI_REF=7fe8a6692050de10e10ecd6c7b7d811935d92440
+ARG DSUI_REF=5dd9161d5592e0c9ab3fd28d5af99370a0202062
 ADD https://codeload.github.com/northgraindata/dsui/tar.gz/${DSUI_REF} /tmp/source.tar.gz
 RUN tar -xzf /tmp/source.tar.gz --strip-components=1 -C /src
 RUN bun install --frozen-lockfile --ignore-scripts
@@ -28,6 +28,7 @@ RUN for name in postgresql duckdb s3 airflow dbt; do \
 FROM oven/bun:1.3.12-slim
 WORKDIR /app
 COPY --from=build --chown=bun:bun /out/server.mjs /app/server.mjs
+COPY --chown=bun:bun dsui.yaml /etc/dsui/dsui.yaml
 RUN printf '#!/bin/sh\nexec bun /app/server.mjs "$@"\n' > /usr/local/bin/dsui && chmod +x /usr/local/bin/dsui
 COPY --from=build --chown=bun:bun /out/data /data
 COPY --from=build --chown=bun:bun /out/plugins /app/plugins

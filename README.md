@@ -216,7 +216,7 @@ Python tests cover Stripe identities, object links, billing periods, full refund
 The intentional orphan order items emit a warning; other failures stop the build before publication.
 A static CI job uses [northgraindata/dbt-doctor](https://github.com/northgraindata/dbt-doctor), pinned to a commit, with native static rules and an error gate.
 A runtime CI job builds and starts the complete stack from fresh volumes.
-`scripts/smoke.py` verifies anonymous/owner roles, management and SQL write denial, all four adapters, execution of both DAGs, object-storage refresh and preservation of a published snapshot after a failed dbt build.
+`scripts/smoke.py` verifies anonymous/owner roles, management and SQL write denial, all five adapters, execution of both DAGs, object-storage refresh and preservation of a published snapshot after a failed dbt build.
 CI uploads the dbt manifest, results, catalog and runtime logs for review.
 
 ```sh
@@ -319,8 +319,12 @@ The tour ends with the code-repository plugin and a Plugin SDK contribution
 example. Product code provides generic slots, positioning, named targets and
 interaction notifications; the story and repair code live in `plugins/demo-guide`.
 
-The demo image pins DSUI commit `7fe8a6692050de10e10ecd6c7b7d811935d92440`,
-which includes the SDK overlay contracts and host changes.
+The demo image pins DSUI commit `5dd9161d5592e0c9ab3fd28d5af99370a0202062`,
+which includes the SDK overlay contracts, host changes and the dbt browser
+component fix in [DSUI PR #74](https://github.com/northgraindata/dsui/pull/74).
+Deploy this revision after that product PR has been reviewed. Configuration and
+PostgreSQL bootstrap scripts are baked into their images, so remote deployments
+do not depend on runtime bind mounts from the source checkout.
 
 ## Status
 

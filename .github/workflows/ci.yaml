@@ -83,7 +83,7 @@ jobs:
         run: python scripts/setup-env.py
       - name: Build backing services
         run: |
-          docker compose build minio data-generator airflow
+          docker compose build postgres minio data-generator airflow
           docker builder prune -f
       - name: Build DSUI, plugins and SDKs
         run: |

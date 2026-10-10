@@ -1,21 +1,15 @@
--- Daily acquisition across paid and organic.
---
--- One row per day and channel, so Meta, Google Ads and Search Console become
--- comparable. Spend arrives in two incompatible units and in three currencies,
--- which is resolved here and nowhere else.
---
--- Session counts come from GA4, which is anonymous, so they can only be attached
--- to a date and a source. That is a real constraint rather than a modelling
--- shortcut: it is why paid and organic attribution in this demo is directional.
+-- One row per UTC report day, combining EUR spend and anonymous sessions.
+-- Meta retains its report grain; the purchase array never multiplies spend.
+-- Source reports share EUR, so no synthetic FX conversion is needed.
 
 with meta as (
     select
         report_date,
-        sum(case when action_type = 'purchase' then action_value else 0 end)  as meta_purchases,
+        sum(purchases)  as meta_purchases,
         sum(spend)                                                           as spend,
         sum(clicks)                                                          as clicks,
         sum(impressions)                                                     as impressions
-    from {{ ref('stg_meta_ads_daily') }}
+    from {{ ref('stg_meta__ads_daily') }}
     group by 1
 ),
 
@@ -27,7 +21,7 @@ google as (
         sum(impressions)       as impressions,
         sum(conversions)       as conversions,
         sum(conversions_value) as conversions_value
-    from {{ ref('stg_google_ads_daily') }}
+    from {{ ref('stg_google__ads_daily') }}
     group by 1
 ),
 
@@ -36,8 +30,8 @@ gsc as (
         report_date,
         sum(clicks)      as clicks,
         sum(impressions) as impressions,
-        sum(clicks::double / position) as position_weighted_clicks
-    from {{ ref('stg_gsc_daily') }}
+        sum(position * impressions::double) as position_weighted_impressions
+    from {{ ref('stg_gsc__daily') }}
     group by 1
 ),
 
@@ -47,7 +41,7 @@ sessions as (
         sum(case when medium in ('cpc', 'paid_social') then 1 else 0 end) as paid_sessions,
         sum(case when medium in ('organic', 'referral') then 1 else 0 end) as organic_sessions,
         count(*)                                                          as total_sessions
-    from {{ ref('stg_ga4_sessions') }}
+    from {{ ref('stg_ga4__sessions') }}
     group by 1
 )
 
@@ -67,9 +61,9 @@ select
 
     coalesce(o.clicks, 0)                    as organic_clicks,
     coalesce(o.impressions, 0)               as organic_impressions,
-    -- A daily average position is only meaningful when weighted by clicks.
-    round(coalesce(o.position_weighted_clicks, 0)
-          / nullif(coalesce(o.clicks, 0), 0), 2) as average_position,
+    -- Weight position by impressions to match Search Console aggregation.
+    round(coalesce(o.position_weighted_impressions, 0)
+          / nullif(coalesce(o.impressions, 0), 0), 2) as average_position,
 
     coalesce(s.paid_sessions, 0)             as paid_sessions,
     coalesce(s.organic_sessions, 0)          as organic_sessions,

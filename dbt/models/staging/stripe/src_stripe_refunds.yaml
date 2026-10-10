@@ -1,0 +1,31 @@
+version: 2
+sources:
+- name: landing
+  schema: landing
+  description: Synthetic public dataset; raw columns retain their export representation.
+  tables:
+  - name: stripe_refunds
+    description: Raw stripe refunds; one text-typed Parquet landing file.
+    columns:
+    - name: refund_id
+      data_type: varchar
+      description: Raw export value as text. Refund identifier; refund objects store a positive amount returned
+        to the customer.
+    - name: charge_id
+      data_type: varchar
+      description: Raw export value as text. Stripe charge identifier, including succeeded and failed attempts.
+    - name: created_at
+      data_type: varchar
+      description: Raw export value as text. Object creation timestamp in UTC, parsed from the source representation.
+    - name: amount
+      data_type: varchar
+      description: Raw export value as text. Amount in the original currency major units.
+    - name: payload
+      data_type: varchar
+      description: Raw export value as text. Synthetic API object snapshot JSON, pinned to the modeled Stripe 2024-06-20
+        schema; not a webhook envelope.
+  loader: demo_generator_and_airflow_parquet_extract
+  meta:
+    owner: data-platform
+    synthetic: true
+    api_version: '2024-06-20'

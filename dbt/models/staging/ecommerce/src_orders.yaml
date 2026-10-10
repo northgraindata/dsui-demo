@@ -1,0 +1,38 @@
+version: 2
+sources:
+- name: landing
+  schema: landing
+  description: Synthetic public dataset; raw columns retain their export representation.
+  tables:
+  - name: orders
+    description: Raw orders; one text-typed Parquet landing file.
+    columns:
+    - name: order_id
+      data_type: varchar
+      description: Raw export value as text. Order id within the originating source.
+    - name: customer_id
+      data_type: varchar
+      description: Raw export value as text. Customer identifier within this source; Stripe IDs use the cus_ prefix.
+    - name: placed_at
+      data_type: varchar
+      description: Raw export value as text. Placed at timestamp in UTC; null if not applicable.
+    - name: status
+      data_type: varchar
+      description: Raw export value as text. Normalized source status, specific to the object type.
+    - name: currency
+      data_type: varchar
+      description: Raw export value as text. Currency code. Stripe uses lowercase; acquisition and product reports
+        use uppercase EUR. No FX conversion is modeled.
+    - name: total
+      data_type: varchar
+      description: Raw export value as text. Order total in its original currency; currencies are not summed together.
+    - name: channel
+      data_type: varchar
+      description: Raw export value as text. Channel reported by the source.
+    - name: coupon_code
+      data_type: varchar
+      description: Raw export value as text. Coupon code reported by the source.
+  loader: demo_generator_and_airflow_parquet_extract
+  meta:
+    owner: data-platform
+    synthetic: true

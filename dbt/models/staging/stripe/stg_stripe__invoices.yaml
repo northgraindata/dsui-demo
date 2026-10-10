@@ -1,0 +1,88 @@
+version: 2
+models:
+- name: stg_stripe__invoices
+  description: Typed stripe invoices; one row per invoice_id.
+  config:
+    contract:
+      enforced: true
+    meta:
+      owner: data-platform
+    tags:
+    - staging
+    - stripe
+  data_tests:
+  - dbt_expectations.expect_table_row_count_to_be_between:
+      min_value: 1
+  - dbt_utils.expression_is_true:
+      expression: amount_due_minor = amount_paid_minor + amount_remaining_minor
+  columns:
+  - name: invoice_id
+    description: Stripe invoice identifier for a monthly billing cycle.
+    data_type: varchar
+    data_tests:
+    - not_null
+    - unique
+  - name: customer_id
+    description: Customer identifier within this source; Stripe IDs use the cus_ prefix.
+    data_type: varchar
+    data_tests:
+    - relationships:
+        to: '{{ ref(''stg_stripe__customers'') }}'
+        field: customer_id
+  - name: subscription_id
+    description: Subscription identifier; one current object snapshot per subscription.
+    data_type: varchar
+    data_tests:
+    - relationships:
+        to: '{{ ref(''stg_stripe__subscriptions'') }}'
+        field: subscription_id
+  - name: charge_id
+    description: Stripe charge identifier, including succeeded and failed attempts.
+    data_type: varchar
+    data_tests:
+    - relationships:
+        to: '{{ ref(''stg_stripe__charges'') }}'
+        field: charge_id
+  - name: status
+    description: Normalized source status, specific to the object type.
+    data_type: varchar
+    data_tests:
+    - accepted_values:
+        values:
+        - paid
+        - open
+        - draft
+  - name: currency
+    description: Currency code. Stripe uses lowercase; acquisition and product reports use uppercase EUR. No FX
+      conversion is modeled.
+    data_type: varchar
+  - name: created_at
+    description: Object creation timestamp in UTC, parsed from the source representation.
+    data_type: timestamp
+    data_tests:
+    - not_null
+  - name: amount_due_minor
+    description: Total invoice amount due in integer minor currency units.
+    data_type: integer
+    data_tests:
+    - dbt_expectations.expect_column_values_to_be_between:
+        min_value: 0
+  - name: amount_paid_minor
+    description: Invoice amount paid in minor units; zero on unpaid invoices.
+    data_type: integer
+    data_tests:
+    - dbt_expectations.expect_column_values_to_be_between:
+        min_value: 0
+  - name: amount_remaining_minor
+    description: Invoice amount still owed, equal to due minus paid in this tax-free demo.
+    data_type: integer
+    data_tests:
+    - dbt_expectations.expect_column_values_to_be_between:
+        min_value: 0
+  - name: is_paid
+    description: Whether the charge/invoice has been paid; failed charges are false.
+    data_type: boolean
+  - name: payload
+    description: Synthetic API object snapshot JSON, pinned to the modeled Stripe 2024-06-20 schema; not a webhook
+      envelope.
+    data_type: json

@@ -1,0 +1,66 @@
+version: 2
+models:
+- name: stg_stripe__refunds
+  description: Typed stripe refunds; one row per refund_id.
+  config:
+    contract:
+      enforced: true
+    meta:
+      owner: data-platform
+    tags:
+    - staging
+    - stripe
+  data_tests:
+  - dbt_expectations.expect_table_row_count_to_be_between:
+      min_value: 1
+  columns:
+  - name: refund_id
+    description: Refund identifier; refund objects store a positive amount returned to the customer.
+    data_type: varchar
+    data_tests:
+    - not_null
+    - unique
+  - name: charge_id
+    description: Stripe charge identifier, including succeeded and failed attempts.
+    data_type: varchar
+    data_tests:
+    - relationships:
+        to: '{{ ref(''stg_stripe__charges'') }}'
+        field: charge_id
+  - name: balance_transaction_id
+    description: Linked Stripe ledger entry; null when a charge failed.
+    data_type: varchar
+    data_tests:
+    - relationships:
+        to: '{{ ref(''stg_stripe__balance_transactions'') }}'
+        field: txn_id
+  - name: payment_intent_id
+    description: Linked payment intent ID; intent objects are outside the modeled subset.
+    data_type: varchar
+  - name: currency
+    description: Currency code. Stripe uses lowercase; acquisition and product reports use uppercase EUR. No FX
+      conversion is modeled.
+    data_type: varchar
+  - name: status
+    description: Normalized source status, specific to the object type.
+    data_type: varchar
+    data_tests:
+    - accepted_values:
+        values:
+        - succeeded
+  - name: reason
+    description: Reason reported by the source.
+    data_type: varchar
+  - name: amount_minor
+    description: Amount in integer minor currency units. Balance movements are signed; charges/refund objects are
+      positive.
+    data_type: integer
+  - name: created_at
+    description: Object creation timestamp in UTC, parsed from the source representation.
+    data_type: timestamp
+    data_tests:
+    - not_null
+  - name: payload
+    description: Synthetic API object snapshot JSON, pinned to the modeled Stripe 2024-06-20 schema; not a webhook
+      envelope.
+    data_type: json

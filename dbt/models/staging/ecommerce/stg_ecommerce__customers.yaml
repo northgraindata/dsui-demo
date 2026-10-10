@@ -1,0 +1,50 @@
+version: 2
+models:
+- name: stg_ecommerce__customers
+  description: E-commerce customers, one row per customer_id after dropping explicit -DUP markers; missing emails
+    remain visible.
+  config:
+    contract:
+      enforced: true
+    meta:
+      owner: data-platform
+    tags:
+    - staging
+    - ecommerce
+  data_tests:
+  - dbt_expectations.expect_table_row_count_to_be_between:
+      min_value: 1
+  columns:
+  - name: customer_id
+    description: Customer identifier within this source; Stripe IDs use the cus_ prefix.
+    data_type: varchar
+    data_tests:
+    - not_null
+    - unique
+  - name: email
+    description: Synthetic contact email; missing e-commerce emails are intentional.
+    data_type: varchar
+  - name: full_name
+    description: Synthetic customer display name.
+    data_type: varchar
+  - name: country
+    description: Uppercase two-letter country code in the normalized demo export.
+    data_type: varchar
+  - name: signup_at
+    description: Signup at timestamp in UTC; null if not applicable.
+    data_type: timestamp
+  - name: plan
+    description: Plan reported by the source.
+    data_type: varchar
+  - name: mrr
+    description: Current product monthly recurring revenue in EUR; zero for churned accounts.
+    data_type: double
+  - name: is_trial
+    description: Is trial reported by the source.
+    data_type: boolean
+  - name: referred_by
+    description: Boolean referral flag from the export, not a referrer customer ID.
+    data_type: boolean
+  - name: last_seen_at
+    description: Last seen at timestamp in UTC; null if not applicable.
+    data_type: timestamp

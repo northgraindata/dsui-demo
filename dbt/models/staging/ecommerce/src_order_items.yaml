@@ -1,0 +1,29 @@
+version: 2
+sources:
+- name: landing
+  schema: landing
+  description: Synthetic public dataset; raw columns retain their export representation.
+  tables:
+  - name: order_items
+    description: Raw order items; one text-typed Parquet landing file.
+    columns:
+    - name: order_id
+      data_type: varchar
+      description: Raw export value as text. Order id within the originating source.
+    - name: sku
+      data_type: varchar
+      description: Raw export value as text. Product stock keeping unit, shared by the catalog and order items.
+    - name: quantity
+      data_type: varchar
+      description: Raw export value as text. Number of purchased units; Stripe subscription quantity is one for
+        flat account pricing.
+    - name: unit_price
+      data_type: varchar
+      description: Raw export value as text. Unit price in the original currency major units.
+    - name: discount
+      data_type: varchar
+      description: Raw export value as text. Absolute line discount in the order currency, not a percentage.
+  loader: demo_generator_and_airflow_parquet_extract
+  meta:
+    owner: data-platform
+    synthetic: true

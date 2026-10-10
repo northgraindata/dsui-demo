@@ -1,0 +1,37 @@
+version: 2
+sources:
+- name: landing
+  schema: landing
+  description: Synthetic public dataset; raw columns retain their export representation.
+  tables:
+  - name: stripe_charges
+    description: Raw stripe charges; one text-typed Parquet landing file.
+    columns:
+    - name: charge_id
+      data_type: varchar
+      description: Raw export value as text. Stripe charge identifier, including succeeded and failed attempts.
+    - name: customer_id
+      data_type: varchar
+      description: Raw export value as text. Customer identifier within this source; Stripe IDs use the cus_ prefix.
+    - name: status
+      data_type: varchar
+      description: Raw export value as text. Normalized source status, specific to the object type.
+    - name: currency
+      data_type: varchar
+      description: Raw export value as text. Currency code. Stripe uses lowercase; acquisition and product reports
+        use uppercase EUR. No FX conversion is modeled.
+    - name: amount
+      data_type: varchar
+      description: Raw export value as text. Amount in the original currency major units.
+    - name: created_at
+      data_type: varchar
+      description: Raw export value as text. Object creation timestamp in UTC, parsed from the source representation.
+    - name: payload
+      data_type: varchar
+      description: Raw export value as text. Synthetic API object snapshot JSON, pinned to the modeled Stripe 2024-06-20
+        schema; not a webhook envelope.
+  loader: demo_generator_and_airflow_parquet_extract
+  meta:
+    owner: data-platform
+    synthetic: true
+    api_version: '2024-06-20'

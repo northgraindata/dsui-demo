@@ -1,0 +1,37 @@
+version: 2
+models:
+- name: stg_ecommerce__products
+  description: Typed products; one row per sku.
+  config:
+    contract:
+      enforced: true
+    meta:
+      owner: data-platform
+    tags:
+    - staging
+    - ecommerce
+  data_tests:
+  - dbt_expectations.expect_table_row_count_to_be_between:
+      min_value: 1
+  columns:
+  - name: sku
+    description: Product stock keeping unit, shared by the catalog and order items.
+    data_type: varchar
+    data_tests:
+    - not_null
+    - unique
+  - name: name
+    description: Name reported by the source.
+    data_type: varchar
+  - name: category
+    description: Category reported by the source.
+    data_type: varchar
+  - name: price
+    description: Price in the original currency major units.
+    data_type: double
+  - name: cost
+    description: Cost in the original currency major units.
+    data_type: double
+  - name: launched_at
+    description: Launched at timestamp in UTC; null if not applicable.
+    data_type: timestamp

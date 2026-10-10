@@ -1,152 +1,93 @@
-# DSUI configuration for the public self-serve demo.
-#
-# Two rules govern this file, because the instance is open to anyone:
-#
-#   1. Every `ref` is pinned. Nothing floats on `main`. A push to a repository
-#      must never be able to change or break the public demo, so fixing the
-#      demo means bumping a tag deliberately.
-#   2. Every credential is interpolated from the environment. This file is
-#      public; the values it interpolates are fake and disclosed in the README.
-#
-# Note the asymmetry between adapters and plugins: an adapter's `repository`
-# must be a full `git+https://github.com/owner/name` URL, while a plugin's is a
-# bare `owner/name`.
-
 adapters:
-  # Built from source on first start, so a cold boot takes minutes and needs
-  # network access. `/data` is a volume, which keeps the package-manager cache
-  # between restarts.
   postgresql:
-    source: git
-    repository: git+https://github.com/northgraindata/dsui
-    ref: v0.1.1
-    path: packages/adapter-postgresql
-
-  duckdb:
-    source: git
-    repository: git+https://github.com/northgraindata/dsui
-    ref: v0.1.1
-    path: packages/adapter-duckdb
-
-  s3:
-    source: git
-    repository: git+https://github.com/northgraindata/dsui
-    ref: v0.1.1
-    path: packages/adapter-s3
-
-  airflow:
-    source: git
-    repository: git+https://github.com/northgraindata/dsui
-    ref: v0.1.1
-    path: packages/adapter-airflow
-
-plugins:
-  # Anonymous visitors get `operator`, which allows running queries and DAG
-  # triggers but withholds `manage`. Without this plugin the server falls back to
-  # `localPrincipalMiddleware()`, which is `owner` to every request on the
-  # internet.
-  #
-  # `critical: true` is required: the host refuses to install an authentication
-  # plugin that is not critical, so a failure here stops the server rather than
-  # silently opening the demo up.
-  demo-auth:
     source: local
-    path: /plugins/demo-auth
+    path: /app/source/packages/adapter-postgresql
+  duckdb:
+    source: local
+    path: /app/source/packages/adapter-duckdb
+  s3:
+    source: local
+    path: /app/source/packages/adapter-s3
+  airflow:
+    source: local
+    path: /app/source/packages/adapter-airflow
+  dbt:
+    source: local
+    path: /app/source/packages/adapter-dbt
+plugins:
+  demo-auth:
     critical: true
     config:
       adminSecret: ${DEMO_ADMIN_SECRET}
       allowExecution: true
-
-  # Pre-bundled in the DSUI image, so `source: package` resolves it with no build
-  # and no network. It points at this repository and at the DAG folder, so a
-  # visitor browsing the orchestration service sees the very file Airflow is
-  # running, in DSUI, and can compare it with the run history beside it.
-  #
-  # Refresh is off because the target is a public GitHub repository: polling it
-  # every fifteen minutes from a demo instance spends an anonymous rate limit on
-  # nothing, since the code only changes when the demo is redeployed.
+    package: /app/plugins/demo-auth.mjs
   code-repository:
-    source: package
-    package: "@northgraindata/dsui-plugin-code-repository"
+    package: '@northgraindata/dsui-plugin-code-repository'
+    browserBundle: '@northgraindata/dsui-plugin-code-repository/browser'
     config:
       refreshMinutes: 0
       connections:
-        - key: demo-dags
-          serviceId: orchestration
-          name: Demo pipelines
-          provider: github
-          repository: northgraindata/dsui-demo
-          branch: main
-          folder: airflow/dags
-          instructions: >-
-            The DAGs Airflow runs in this demo. `demo_pipeline` builds the
-            platform's own warehouse; `daily_ecommerce_load` stands in for a
-            customer's pipeline.
-
-  # The guided tour. Also built from source, and deliberately not `critical`: the
-  # demo is perfectly usable without it, so a failure here should not stop the
-  # server.
+      - key: demo-dags
+        serviceId: orchestration
+        name: Demo pipelines
+        provider: github
+        repository: northgraindata/dsui-demo
+        branch: main
+        folder: airflow/dags
+        instructions: The DAGs Airflow runs in this demo. `demo_pipeline` builds the
+          platform's own warehouse; `daily_ecommerce_load` stands in for a customer's
+          pipeline.
   demo-guide:
-    source: local
-    path: /plugins/demo-guide
     config:
-      title: A tour of the demo
-      disclaimer: >-
-        Every service, row and number here is synthetic. Nothing you do reaches a
-        real system, and the data resets on a schedule.
-
+      title: Debug your data stack · 6–8 minutes
+      disclaimer: Every service, row and number here is synthetic. Nothing you do
+        reaches a real system, and the data resets on a schedule.
+    package: /app/plugins/demo-guide.mjs
 services:
-  # The published DuckDB snapshot: landing, staging and marts side by side.
-  #
-  # `readOnly: true` matters here more than for the database below. The file is
-  # replaced by rename while a visitor may be reading it, and read-only is what
-  # guarantees this connection cannot interfere with the publish step or hold the
-  # old snapshot open against it. A visitor sees a consistent snapshot of the
-  # moment they connected, not a half-written warehouse.
-  - id: snapshot
-    adapter: duckdb
-    name: Published snapshot
-    connection:
-      method: file
-      path: /out/demo.duckdb
-      readOnly: true
-
-  # Read-only in practice: `statementTimeout` caps what an anonymous visitor can
-  # ask for, and this account owns nothing it should be able to break.
-  - id: analytics
-    adapter: postgresql
-    name: Analytics warehouse
-    connection:
-      host: postgres
-      port: 5432
-      database: analytics
-      databaseScope: all
-      username: ${POSTGRES_USER}
-      password: ${POSTGRES_PASSWORD}
-      sslMode: disable
-      connectTimeout: 10
-      statementTimeout: 30000
-      applicationName: dsui-demo
-
-  # The customer's own pipeline, not the platform's build log. Reached over the
-  # compose network and never published, so the only way in is through DSUI.
-  - id: orchestration
-    adapter: airflow
-    name: Orchestration
-    connection:
-      method: airflow-2
-      baseUrl: http://airflow:8080
-      username: ${AIRFLOW_API_USER}
-      password: ${AIRFLOW_API_PASSWORD}
-
-  # Object storage, seeded from the same landing zone the pipeline reads, so the
-  # S3 service and the DuckDB service describe the same business.
-  - id: landing
-    adapter: s3
-    name: Object storage
-    connection:
-      region: eu-central-1
-      endpoint: http://minio:9000
-      accessKeyId: ${MINIO_ROOT_USER}
-      secretAccessKey: ${MINIO_ROOT_PASSWORD}
-      forcePathStyle: true
+- id: snapshot
+  adapter: duckdb
+  name: Analytics warehouse
+  connection:
+    method: file
+    path: /out/demo.duckdb
+    readOnly: true
+- id: analytics
+  adapter: postgresql
+  name: PostgreSQL source
+  connection:
+    host: postgres
+    port: 5432
+    database: ${POSTGRES_DB}
+    databaseScope: selected
+    username: ${DEMO_READER_USER}
+    password: ${DEMO_READER_PASSWORD}
+    sslMode: disable
+    connectTimeout: 10
+    statementTimeout: 30000
+    applicationName: dsui-demo
+- id: transformations
+  adapter: dbt
+  name: dbt project
+  connection:
+    method: local
+    projectPath: /opt/demo-dbt
+    profilesDir: /opt/demo-dbt
+    targetPath: target
+    executable: /opt/dbt/bin/dbt
+- id: orchestration
+  adapter: airflow
+  name: Orchestration
+  connection:
+    method: airflow-2
+    baseUrl: http://airflow:8080
+    username: ${AIRFLOW_API_USER}
+    password: ${AIRFLOW_API_PASSWORD}
+- id: landing
+  adapter: s3
+  name: Object storage
+  connection:
+    region: eu-central-1
+    endpoint: http://minio:9000
+    accessKeyId: ${MINIO_ROOT_USER}
+    secretAccessKey: ${MINIO_ROOT_PASSWORD}
+    forcePathStyle: true

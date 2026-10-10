@@ -1,0 +1,44 @@
+version: 2
+sources:
+- name: landing
+  schema: landing
+  description: Synthetic public dataset; raw columns retain their export representation.
+  tables:
+  - name: accounts
+    description: Raw accounts; one text-typed Parquet landing file.
+    columns:
+    - name: account_id
+      data_type: varchar
+      description: Raw export value as text. Product account identifier used to join billing and product analytics.
+    - name: name
+      data_type: varchar
+      description: Raw export value as text. Name reported by the source.
+    - name: plan
+      data_type: varchar
+      description: Raw export value as text. Plan reported by the source.
+    - name: seats
+      data_type: varchar
+      description: Raw export value as text. Seats reported by the source.
+    - name: country
+      data_type: varchar
+      description: Raw export value as text. Uppercase two-letter country code in the normalized demo export.
+    - name: created_at
+      data_type: varchar
+      description: Raw export value as text. Object creation timestamp in UTC, parsed from the source representation.
+    - name: status
+      data_type: varchar
+      description: Raw export value as text. Normalized source status, specific to the object type.
+    - name: mrr
+      data_type: varchar
+      description: Raw export value as text. Current product monthly recurring revenue in EUR; zero for churned
+        accounts.
+    - name: trial_ends_at
+      data_type: varchar
+      description: Raw export value as text. Trial ends at timestamp in UTC; null if not applicable.
+    - name: churned_at
+      data_type: varchar
+      description: Raw export value as text. Churned at timestamp in UTC; null if not applicable.
+  loader: demo_generator_and_airflow_parquet_extract
+  meta:
+    owner: data-platform
+    synthetic: true

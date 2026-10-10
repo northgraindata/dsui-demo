@@ -8,13 +8,14 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /dbt
 
-RUN pip install --no-cache-dir dbt-duckdb==1.9.2
+RUN pip install --no-cache-dir dbt-core==1.9.10 dbt-duckdb==1.9.2 duckdb==1.2.2
 
-COPY dbt_project.yml profiles.yml ./
-COPY macros ./macros
-COPY models ./models
-COPY tests ./tests
-COPY entrypoint.sh ./
+COPY dbt/dbt_project.yml dbt/profiles.yml dbt/packages.yml dbt/package-lock.yml ./
+RUN dbt deps
+COPY dbt/macros ./macros
+COPY dbt/models ./models
+COPY dbt/tests ./tests
+COPY dbt/entrypoint.sh ./
 
 ENTRYPOINT ["./entrypoint.sh"]
 CMD ["dbt", "build"]

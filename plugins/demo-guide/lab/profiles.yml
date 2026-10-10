@@ -1,0 +1,8 @@
+dsui_tour_repair:
+  target: tour
+  outputs:
+    tour:
+      type: duckdb
+      path: "{{ env_var('TOUR_REPAIR_DATABASE') }}"
+      schema: tour
+      threads: 1

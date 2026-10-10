@@ -1,0 +1,5 @@
+# Native dbt rules complement the executable dbt build in CI.
+preset=default
+skip_sqlfluff=true
+offline=true
+fail_on=error

@@ -1,0 +1,6 @@
+dbt-core==1.9.10
+dbt-duckdb==1.9.2
+duckdb==1.2.2
+pyarrow==18.1.0
+psycopg[binary]==3.2.3
+pyflakes==3.2.0

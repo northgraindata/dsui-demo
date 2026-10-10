@@ -1,0 +1,31 @@
+version: 2
+sources:
+- name: landing
+  schema: landing
+  description: Synthetic public dataset; raw columns retain their export representation.
+  tables:
+  - name: products
+    description: Raw products; one text-typed Parquet landing file.
+    columns:
+    - name: sku
+      data_type: varchar
+      description: Raw export value as text. Product stock keeping unit, shared by the catalog and order items.
+    - name: name
+      data_type: varchar
+      description: Raw export value as text. Name reported by the source.
+    - name: category
+      data_type: varchar
+      description: Raw export value as text. Category reported by the source.
+    - name: price
+      data_type: varchar
+      description: Raw export value as text. Price in the original currency major units.
+    - name: cost
+      data_type: varchar
+      description: Raw export value as text. Cost in the original currency major units.
+    - name: launched_at
+      data_type: varchar
+      description: Raw export value as text. Launched at timestamp in UTC; null if not applicable.
+  loader: demo_generator_and_airflow_parquet_extract
+  meta:
+    owner: data-platform
+    synthetic: true

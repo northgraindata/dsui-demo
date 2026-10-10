@@ -1,0 +1,51 @@
+version: 2
+models:
+- name: stg_stripe__customers
+  description: Typed stripe customers; one row per customer_id.
+  config:
+    contract:
+      enforced: true
+    meta:
+      owner: data-platform
+    tags:
+    - staging
+    - stripe
+  data_tests:
+  - dbt_expectations.expect_table_row_count_to_be_between:
+      min_value: 1
+  columns:
+  - name: customer_id
+    description: Customer identifier within this source; Stripe IDs use the cus_ prefix.
+    data_type: varchar
+    data_tests:
+    - not_null
+    - unique
+  - name: created_at
+    description: Object creation timestamp in UTC, parsed from the source representation.
+    data_type: timestamp
+    data_tests:
+    - not_null
+  - name: name
+    description: Name reported by the source.
+    data_type: varchar
+  - name: email
+    description: Synthetic contact email; missing e-commerce emails are intentional.
+    data_type: varchar
+  - name: account_id
+    description: Product account identifier used to join billing and product analytics.
+    data_type: varchar
+    data_tests:
+    - relationships:
+        to: '{{ ref(''stg_product__accounts'') }}'
+        field: account_id
+  - name: is_delinquent
+    description: Is delinquent reported by the source.
+    data_type: boolean
+  - name: currency
+    description: Currency code. Stripe uses lowercase; acquisition and product reports use uppercase EUR. No FX
+      conversion is modeled.
+    data_type: varchar
+  - name: payload
+    description: Synthetic API object snapshot JSON, pinned to the modeled Stripe 2024-06-20 schema; not a webhook
+      envelope.
+    data_type: json

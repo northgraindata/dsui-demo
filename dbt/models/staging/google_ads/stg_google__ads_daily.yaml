@@ -1,0 +1,80 @@
+version: 2
+models:
+- name: stg_google__ads_daily
+  description: Typed google ads daily; one row per report_date, campaign_id.
+  config:
+    contract:
+      enforced: true
+    meta:
+      owner: data-platform
+    tags:
+    - staging
+    - google_ads
+  data_tests:
+  - dbt_expectations.expect_table_row_count_to_be_between:
+      min_value: 1
+  - dbt_utils.unique_combination_of_columns:
+      combination_of_columns:
+      - report_date
+      - campaign_id
+  columns:
+  - name: report_date
+    description: UTC report day; report metrics are aggregated only within this day.
+    data_type: timestamp
+    data_tests:
+    - not_null
+  - name: campaign_id
+    description: Campaign id within the originating source.
+    data_type: varchar
+    data_tests:
+    - not_null
+  - name: campaign_name
+    description: Human-readable campaign name, null when the export has (not set).
+    data_type: varchar
+  - name: impressions
+    description: Impressions count for this report dimension row.
+    data_type: bigint
+  - name: clicks
+    description: Clicks count for this report dimension row.
+    data_type: bigint
+  - name: cost_micros
+    description: Google Ads cost in millionths of an EUR, divided by 1,000,000 to obtain spend.
+    data_type: bigint
+    data_tests:
+    - dbt_expectations.expect_column_values_to_be_between:
+        min_value: 0
+  - name: spend
+    description: Advertising spend in EUR major currency units; counted once per report row.
+    data_type: double
+    data_tests:
+    - dbt_expectations.expect_column_values_to_be_between:
+        min_value: 0
+  - name: conversions
+    description: Attributed conversions; may be fractional.
+    data_type: double
+  - name: conversions_value
+    description: Attributed conversions value in EUR.
+    data_type: double
+  - name: all_conversions
+    description: Attributed all conversions; may be fractional.
+    data_type: double
+  - name: ctr
+    description: Click-through rate as a fraction between zero and one in this normalized demo export.
+    data_type: double
+    data_tests:
+    - dbt_expectations.expect_column_values_to_be_between:
+        min_value: 0
+        max_value: 1
+  - name: cpc
+    description: Advertising cost in EUR per click.
+    data_type: double
+  - name: cpm
+    description: Advertising cost in EUR per thousand impressions.
+    data_type: double
+  - name: cost_per_conversion
+    description: Cost per conversion reported by the source.
+    data_type: double
+  - name: currency
+    description: Currency code. Stripe uses lowercase; acquisition and product reports use uppercase EUR. No FX
+      conversion is modeled.
+    data_type: varchar

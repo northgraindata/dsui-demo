@@ -1,0 +1,44 @@
+version: 2
+sources:
+- name: landing
+  schema: landing
+  description: Synthetic public dataset; raw columns retain their export representation.
+  tables:
+  - name: customers
+    description: Raw customers; one text-typed Parquet landing file.
+    columns:
+    - name: customer_id
+      data_type: varchar
+      description: Raw export value as text. Customer identifier within this source; Stripe IDs use the cus_ prefix.
+    - name: email
+      data_type: varchar
+      description: Raw export value as text. Synthetic contact email; missing e-commerce emails are intentional.
+    - name: full_name
+      data_type: varchar
+      description: Raw export value as text. Synthetic customer display name.
+    - name: country
+      data_type: varchar
+      description: Raw export value as text. Uppercase two-letter country code in the normalized demo export.
+    - name: signup_at
+      data_type: varchar
+      description: Raw export value as text. Signup at timestamp in UTC; null if not applicable.
+    - name: plan
+      data_type: varchar
+      description: Raw export value as text. Plan reported by the source.
+    - name: mrr
+      data_type: varchar
+      description: Raw export value as text. Current product monthly recurring revenue in EUR; zero for churned
+        accounts.
+    - name: is_trial
+      data_type: varchar
+      description: Raw export value as text. Is trial reported by the source.
+    - name: referred_by
+      data_type: varchar
+      description: Raw export value as text. Boolean referral flag from the export, not a referrer customer ID.
+    - name: last_seen_at
+      data_type: varchar
+      description: Raw export value as text. Last seen at timestamp in UTC; null if not applicable.
+  loader: demo_generator_and_airflow_parquet_extract
+  meta:
+    owner: data-platform
+    synthetic: true

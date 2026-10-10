@@ -1,0 +1,111 @@
+version: 2
+models:
+- name: fct_revenue_reconciliation
+  description: One row per month combining EUR cash and activity flows with current account/subscription creation
+    cohorts. Not a historical MRR snapshot.
+  config:
+    contract:
+      enforced: true
+    meta:
+      owner: data-platform
+    tags:
+    - marts
+    - marts
+  data_tests:
+  - dbt_expectations.expect_table_row_count_to_be_between:
+      min_value: 1
+  columns:
+  - name: month
+    description: Month start. Cash/activity metrics cover the month; account/subscription counts describe current
+      status by creation cohort.
+    data_type: date
+    data_tests:
+    - not_null
+    - unique
+  - name: revenue_gross
+    description: Settled EUR charges for the month in major currency units.
+    data_type: double
+  - name: revenue_refunded
+    description: Positive settled EUR refunds for the month in major currency units.
+    data_type: double
+  - name: revenue_processing_fees
+    description: Settled EUR processing fees for the month in major currency units.
+    data_type: double
+  - name: revenue_net
+    description: Settled EUR cash net of refunds and fees for the month, not accrual revenue.
+    data_type: double
+  - name: active_accounts_product_db
+    description: Currently active product accounts grouped by their creation month.
+    data_type: bigint
+  - name: churned_accounts
+    description: Churned accounts reported by the source for this period.
+    data_type: bigint
+  - name: trialing_accounts
+    description: Trialing accounts reported by the source for this period.
+    data_type: bigint
+  - name: mrr_from_product_db
+    description: Current EUR MRR of active accounts in this creation cohort, not historical month-end MRR.
+    data_type: double
+  - name: active_subscriptions_stripe
+    description: Currently active Stripe subscriptions grouped by their creation month.
+    data_type: bigint
+  - name: canceled_subscriptions_stripe
+    description: Canceled subscriptions stripe reported by the source.
+    data_type: bigint
+  - name: past_due_subscriptions
+    description: Past due subscriptions reported by the source for this period.
+    data_type: bigint
+  - name: paid_invoices
+    description: Paid invoices reported by the source for this period.
+    data_type: hugeint
+  - name: open_invoices
+    description: Open invoices reported by the source for this period.
+    data_type: hugeint
+  - name: draft_invoices
+    description: Draft invoices reported by the source for this period.
+    data_type: hugeint
+  - name: meta_spend
+    description: Meta spend in EUR major units for the period.
+    data_type: double
+  - name: google_ads_spend
+    description: Google ads spend in EUR major units for the period.
+    data_type: double
+  - name: total_paid_spend
+    description: Meta plus Google Ads spend for the period in EUR.
+    data_type: double
+  - name: total_clicks
+    description: Meta, Google Ads and Search Console clicks combined for the period.
+    data_type: hugeint
+  - name: organic_clicks
+    description: Organic clicks count for the period.
+    data_type: hugeint
+  - name: total_sessions
+    description: All anonymous GA4 sessions in the period, including direct and other traffic.
+    data_type: hugeint
+  - name: active_users
+    description: Active users reported by the source for this period.
+    data_type: bigint
+  - name: feature_flag_calls
+    description: Feature flag calls reported by the source for this period.
+    data_type: bigint
+  - name: accounts_seen_treatment
+    description: Accounts seen treatment reported by the source.
+    data_type: bigint
+  - name: active_account_gap
+    description: Difference between active product and Stripe subscription creation-cohort counts.
+    data_type: bigint
+  - name: revenue_vs_mrr_gap
+    description: Monthly settled cash minus current MRR of the creation cohort; illustrative comparison of different
+      grains.
+    data_type: double
+  - name: effective_fee_pct
+    description: Processing fees divided by gross settled revenue, times 100; null when gross is zero.
+    data_type: double
+  - name: account_gap_pct
+    description: Product minus Stripe active creation-cohort count divided by Stripe count, times 100; null if denominator
+      is zero.
+    data_type: double
+  - name: largest_discrepancy
+    description: 'First applicable diagnostic: account gap before open invoices; not a numeric ranking of unlike
+      units.'
+    data_type: varchar

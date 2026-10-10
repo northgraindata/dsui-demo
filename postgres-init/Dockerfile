@@ -1,0 +1,5 @@
+FROM postgres:16-alpine
+
+# Keep bootstrap scripts in the image: remote Compose deployments cannot rely
+# on the build checkout remaining available as a runtime bind mount.
+COPY --chmod=755 postgres-init/01-roles.sh /docker-entrypoint-initdb.d/01-roles.sh

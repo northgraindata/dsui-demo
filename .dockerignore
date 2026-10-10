@@ -1,0 +1,14 @@
+.git
+.env
+.venv
+node_modules
+**/node_modules
+**/__pycache__
+dbt/target
+dbt/logs
+dbt/dbt_packages
+.ci
+*.duckdb
+*.duckdb.wal
+
+.state

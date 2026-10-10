@@ -1,133 +1,143 @@
-# Public self-serve demo stack.
-#
-# Only DSUI is ever published. PostgreSQL, Airflow and MinIO stay on the compose
-# network with no `ports`, so the anonymous internet can reach the product and
-# nothing behind it. Memory and CPU limits are the primary defence against a
-# visitor asking for something expensive.
-#
-# The instance is always-on and never scaled to zero: adapters are compiled on
-# first start, which takes minutes.
-
 name: dsui-demo
-
 services:
   dsui:
-    image: ghcr.io/northgraindata/dsui:${DSUI_IMAGE_TAG:-v0.1.1}
+    image: dsui-demo:0.1.1
     restart: unless-stopped
     ports:
-      - "${DSUI_PORT:-4192}:4192"
+    - 127.0.0.1:${DSUI_PORT:-4192}:4192
     environment:
       DSUI_CONFIG: /etc/dsui/dsui.yaml
       DSUI_MASTER_KEY: ${DSUI_MASTER_KEY:?set DSUI_MASTER_KEY in .env}
       DEMO_ADMIN_SECRET: ${DEMO_ADMIN_SECRET:?set DEMO_ADMIN_SECRET in .env}
       DSUI_HOST: 0.0.0.0
       DSUI_PORT: 4192
+      DEMO_LANDING_DIR: /out/landing
+      DEMO_DUCKDB_NEXT: /out/manual/demo.duckdb
+      POSTGRES_DB: ${POSTGRES_DB:-analytics}
+      DEMO_READER_USER: ${DEMO_READER_USER:-demo_reader}
+      DEMO_READER_PASSWORD: ${DEMO_READER_PASSWORD:-dsui-demo-reader}
+      AIRFLOW_API_USER: ${AIRFLOW_API_USER:-dsui-demo}
+      AIRFLOW_API_PASSWORD: ${AIRFLOW_API_PASSWORD:?set AIRFLOW_API_PASSWORD in .env}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-dsui-demo}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in .env}
     volumes:
-      - ./dsui.yaml:/etc/dsui/dsui.yaml:ro
-      # Built from source on first start, like the adapters, so the plugin source
-      # lives in the repository rather than in an image.
-      - ./plugins:/plugins:ro
-      # The published DuckDB snapshot, written by the Airflow publish step.
-      - demo-exports:/out:ro
-      # A named volume, not a bind mount: the image declares /data owned by its
-      # non-root user, and the volume inherits that. A host bind mount would be
-      # owned by the host user and the server could not write to it.
-      - dsui-data:/data
+    - demo-exports:/out
+    - dsui-data:/data
     depends_on:
-      postgres:
+      airflow:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "/usr/local/bin/dsui", "doctor", "--check-adapters"]
+      test:
+      - CMD
+      - /usr/local/bin/dsui
+      - doctor
+      - --check-adapters
       interval: 30s
-      timeout: 10s
+      timeout: 30s
       retries: 5
-      # Adapters are compiled from source on first boot. Without a long grace
-      # period the healthcheck fails during that build and the container
-      # restart-loops before it ever gets a chance to finish.
       start_period: 600s
     deploy:
       resources:
         limits:
-          cpus: "2.0"
+          cpus: '2'
           memory: 2g
-
+    build:
+      context: .
+      dockerfile: Dockerfile
   postgres:
-    image: postgres:16-alpine
+    image: dsui-demo-postgres:0.1.1
+    build:
+      context: .
+      dockerfile: postgres-init/Dockerfile
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-dsui}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: ${POSTGRES_DB:-analytics}
+      AIRFLOW_DB_USER: ${AIRFLOW_DB_USER:-airflow}
+      AIRFLOW_DB_PASSWORD: ${AIRFLOW_DB_PASSWORD:-dsui-demo-airflow}
+      DEMO_WRITER_USER: ${DEMO_WRITER_USER:-demo_writer}
+      DEMO_WRITER_PASSWORD: ${DEMO_WRITER_PASSWORD:-dsui-demo-writer}
+      DEMO_READER_USER: ${DEMO_READER_USER:-demo_reader}
+      DEMO_READER_PASSWORD: ${DEMO_READER_PASSWORD:-dsui-demo-reader}
+      PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
-      - postgres-data:/var/lib/postgresql/data
-      - ./postgres-init:/docker-entrypoint-initdb.d:ro
+    - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dsui} -d ${POSTGRES_DB:-analytics}"]
+      test:
+      - CMD-SHELL
+      - pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-analytics}
       interval: 10s
       timeout: 5s
       retries: 10
     deploy:
       resources:
         limits:
-          cpus: "1.0"
+          cpus: '1'
           memory: 512m
-
-  # Orchestrates extract, dbt and publish. Airflow's metadata lives in its own
-  # database on the same server so a migration cannot touch demo data, and it is
-  # never published: only DSUI is.
   airflow:
     build:
-      context: ./airflow
+      context: .
+      dockerfile: airflow/Dockerfile
     restart: unless-stopped
     environment:
-      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: >-
-        postgresql+psycopg2://${AIRFLOW_DB_USER:-airflow}:${AIRFLOW_DB_PASSWORD:-dsui-demo-airflow}@postgres:5432/airflow
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${AIRFLOW_DB_USER:-airflow}:${AIRFLOW_DB_PASSWORD:-dsui-demo-airflow}@postgres:5432/airflow
       AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY:?set AIRFLOW_FERNET_KEY in .env}
-      AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "True"
-      # Basic auth for the stable REST API, which is what adapter-airflow talks
-      # to. The value is username:base64(password), so the password is generated
-      # rather than written into this file.
-      AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS: >-
-        ${AIRFLOW_API_USER:-dsui-demo}:${AIRFLOW_API_PASSWORD_B64:?set AIRFLOW_API_PASSWORD_B64 in .env}
-      DATABASE_URL: >-
-        postgresql://${POSTGRES_USER:-dsui}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-analytics}
+      AIRFLOW__API__AUTH_BACKENDS: airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session
+      AIRFLOW__WEBSERVER__EXPOSE_CONFIG: 'False'
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'False'
+      AIRFLOW__CORE__PARALLELISM: '4'
+      AIRFLOW__CORE__MAX_ACTIVE_TASKS_PER_DAG: '2'
+      AIRFLOW_API_USER: ${AIRFLOW_API_USER:-dsui-demo}
+      AIRFLOW_API_PASSWORD: ${AIRFLOW_API_PASSWORD:?set AIRFLOW_API_PASSWORD in .env}
+      DATABASE_URL: postgresql://${DEMO_WRITER_USER:-demo_writer}:${DEMO_WRITER_PASSWORD:-dsui-demo-writer}@postgres:5432/${POSTGRES_DB:-analytics}
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: ${MINIO_ROOT_USER:-dsui-demo}
+      S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in .env}
     volumes:
-      - ./airflow/dags:/airflow/dags
-      - ./dbt:/dbt
-      - demo-exports:/out
-      - airflow-logs:/airflow/logs
-      - airflow-home:/root/airflow
-    # Never published. The adapter reaches it as http://airflow:8080 on the
-    # compose network, so a visitor sees Airflow through DSUI rather than walking
-    # into an unauthenticated scheduler.
+    - demo-exports:/out
+    - airflow-logs:/opt/airflow/logs
     depends_on:
       postgres:
         condition: service_healthy
+      data-generator:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD", "airflow", "version"]
-      interval: 60s
-      timeout: 15s
-      retries: 5
-      start_period: 120s
+      test:
+      - CMD
+      - python
+      - /opt/demo/healthcheck.py
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 600s
     deploy:
       resources:
         limits:
-          cpus: "2.0"
-          memory: 2g
-
-  # Object storage, so the demo shows a real S3 surface. Never published: the
-  # S3 adapter reaches it over the compose network like everything else.
+          cpus: '2'
+          memory: 3g
+    image: dsui-demo-airflow:local
   minio:
-    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    image: dsui-demo-minio:local
     restart: unless-stopped
-    command: server /data --console-address ":9001"
+    command:
+    - server
+    - /data
+    - --console-address
+    - :9001
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-dsui-demo}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in .env}
     volumes:
-      - minio-data:/data
+    - minio-data:/data
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      test:
+      - CMD
+      - curl
+      - -f
+      - http://localhost:9000/minio/health/ready
       interval: 15s
       timeout: 10s
       retries: 10
@@ -135,92 +145,82 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "1.0"
+          cpus: '1'
           memory: 512m
-
-  # Creates the landing bucket and fills it from the CSV exports, so the S3
-  # service has objects to show rather than an empty bucket. Runs to completion
-  # and exits; compose brings it back only if the bucket is missing.
-  minio-init:
-    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
-    depends_on:
-      minio:
-        condition: service_healthy
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-dsui-demo}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
-    volumes:
-      - demo-exports:/out:ro
-      - minio-init:/root/.mc
-    entrypoint: >
-      /bin/sh -c "
-      mc alias set local http://minio:9000 \"$$MINIO_ROOT_USER\" \"$$MINIO_ROOT_PASSWORD\" &&
-      mc mb --ignore-existing local/landing &&
-      mc cp --quiet /out/*.csv local/landing/ &&
-      mc anonymous set download local/landing/public 2>/dev/null || true;
-      mc ls local/landing | head -5;
-      "
-    restart: "no"
-
-  # The transformation layer. Runs as a one-shot job rather than a service:
-  # DuckDB allows one writing process, so a long-lived dbt container would hold
-  # the database open and block the visitor reading it. Airflow invokes this.
+    build:
+      context: .
+      dockerfile: minio/Dockerfile
   dbt:
     build:
-      context: ./dbt
-    profiles: []
+      context: .
+      dockerfile: dbt/Dockerfile
+    profiles:
+    - tools
     environment:
       DBT_PROFILES_DIR: /dbt
-      DEMO_LANDING_DIR: /out
-      DEMO_DUCKDB_NEXT: /out/next/demo.duckdb
+      DEMO_LANDING_DIR: /out/landing
+      DEMO_DUCKDB_NEXT: /out/manual/demo.duckdb
     volumes:
-      - demo-exports:/out
-      # Compiled SQL survives the container, so a Jinja or SQL error can be read
-      # instead of guessed at.
-      - dbt-target:/dbt/target
+    - demo-exports:/out
     depends_on:
-      postgres:
+      airflow:
         condition: service_healthy
-    restart: "no"
+    restart: 'no'
     deploy:
       resources:
         limits:
-          cpus: "2.0"
+          cpus: '2'
           memory: 2g
-
-  # Seeds the synthetic dataset on first boot, then appends a trickle of recent
-  # activity every five minutes so the demo's charts keep moving. The demo is
-  # more convincing when something is visibly live.
+    user: '50000:0'
+    image: dsui-demo-dbt:local
   data-generator:
     build:
       context: ./data-generator
     restart: unless-stopped
     environment:
-      DATABASE_URL: >-
-        postgresql://${POSTGRES_USER:-dsui}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-analytics}
+      DATABASE_URL: postgresql://${DEMO_WRITER_USER:-demo_writer}:${DEMO_WRITER_PASSWORD:-dsui-demo-writer}@postgres:5432/${POSTGRES_DB:-analytics}
       DEMO_CUSTOMERS: ${DEMO_CUSTOMERS:-5000}
       DEMO_ORDERS: ${DEMO_ORDERS:-60000}
       DEMO_ACCOUNTS: ${DEMO_ACCOUNTS:-1200}
-      DEMO_ROW_CAP: ${DEMO_ROW_CAP:-400000}
+      DEMO_ROW_CAP: ${DEMO_ROW_CAP:-1000000}
       DEMO_MAX_AGE_DAYS: ${DEMO_MAX_AGE_DAYS:-30}
       DEMO_TICK_SECONDS: ${DEMO_TICK_SECONDS:-300}
     volumes:
-      - demo-exports:/out
+    - demo-exports:/out
     depends_on:
       postgres:
         condition: service_healthy
+      volume-init:
+        condition: service_completed_successfully
     deploy:
       resources:
         limits:
-          cpus: "1.0"
-          memory: 512m
-
+          cpus: '1'
+          memory: 2g
+    healthcheck:
+      test:
+      - CMD
+      - python
+      - -c
+      - from pathlib import Path; assert Path('/out/seed-ready.json').is_file()
+      interval: 10s
+      timeout: 5s
+      retries: 60
+      start_period: 600s
+    image: dsui-demo-data-generator:local
+  volume-init:
+    image: busybox:1.37.0
+    command:
+    - sh
+    - -ec
+    - mkdir -p /out/next /out/landing /out/commerce; chown -R 50000:0 /out; chmod
+      2775 /out /out/next /out/landing /out/commerce
+    volumes:
+    - demo-exports:/out
+    restart: 'no'
 volumes:
-  dsui-data:
-  postgres-data:
-  demo-exports:
-  dbt-target:
-  airflow-logs:
-  airflow-home:
-  minio-data:
-  minio-init:
+  dsui-data: null
+  postgres-data: null
+  demo-exports: null
+  airflow-logs: null
+  minio-data: null

@@ -1,0 +1,79 @@
+version: 2
+models:
+- name: fct_acquisition_daily
+  description: One row per report day, combining EUR spend and directional anonymous traffic. Position is impression-weighted.
+  config:
+    contract:
+      enforced: true
+    meta:
+      owner: data-platform
+    tags:
+    - marts
+    - marts
+  data_tests:
+  - dbt_expectations.expect_table_row_count_to_be_between:
+      min_value: 1
+  - dbt_utils.expression_is_true:
+      expression: abs(total_paid_spend - meta_spend - google_ads_spend) < 0.000001
+  columns:
+  - name: report_date
+    description: UTC report day; report metrics are aggregated only within this day.
+    data_type: timestamp
+    data_tests:
+    - not_null
+    - unique
+  - name: meta_spend
+    description: Meta spend in EUR major units for the period.
+    data_type: double
+  - name: meta_clicks
+    description: Meta clicks count for the period.
+    data_type: hugeint
+  - name: meta_impressions
+    description: Meta impressions count for the period.
+    data_type: hugeint
+  - name: meta_purchases
+    description: Meta purchases reported by the source.
+    data_type: double
+  - name: google_ads_spend
+    description: Google ads spend in EUR major units for the period.
+    data_type: double
+  - name: google_ads_clicks
+    description: Google ads clicks count for the period.
+    data_type: hugeint
+  - name: google_ads_impressions
+    description: Google ads impressions count for the period.
+    data_type: hugeint
+  - name: google_ads_conversions
+    description: Google ads conversions reported by the source.
+    data_type: double
+  - name: google_ads_conversions_value
+    description: Google ads conversions value reported by the source.
+    data_type: double
+  - name: organic_clicks
+    description: Organic clicks count for the period.
+    data_type: hugeint
+  - name: organic_impressions
+    description: Organic impressions count for the period.
+    data_type: hugeint
+  - name: average_position
+    description: Search Console position weighted by impressions across dimension rows.
+    data_type: double
+    data_tests:
+    - dbt_expectations.expect_column_values_to_be_between:
+        min_value: 1
+        max_value: 100
+  - name: paid_sessions
+    description: Sessions with cpc or paid_social medium.
+    data_type: hugeint
+  - name: organic_sessions
+    description: Sessions with organic or referral medium; excludes direct and email.
+    data_type: hugeint
+  - name: total_sessions
+    description: All anonymous GA4 sessions in the period, including direct and other traffic.
+    data_type: bigint
+  - name: total_paid_spend
+    description: Meta plus Google Ads spend for the period in EUR.
+    data_type: double
+  - name: total_clicks
+    description: Meta, Google Ads and Search Console clicks combined for the period.
+    data_type: hugeint

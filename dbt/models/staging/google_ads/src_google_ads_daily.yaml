@@ -1,0 +1,58 @@
+version: 2
+sources:
+- name: landing
+  schema: landing
+  description: Synthetic public dataset; raw columns retain their export representation.
+  tables:
+  - name: google_ads_daily
+    description: Raw google ads daily; one text-typed Parquet landing file.
+    columns:
+    - name: date
+      data_type: varchar
+      description: Raw export value as text. Date reported by the source.
+    - name: campaign_id
+      data_type: varchar
+      description: Raw export value as text. Campaign id within the originating source.
+    - name: campaign_name
+      data_type: varchar
+      description: Raw export value as text. Human-readable campaign name, null when the export has (not set).
+    - name: impressions
+      data_type: varchar
+      description: Raw export value as text. Impressions count for this report dimension row.
+    - name: clicks
+      data_type: varchar
+      description: Raw export value as text. Clicks count for this report dimension row.
+    - name: cost_micros
+      data_type: varchar
+      description: Raw export value as text. Google Ads cost in millionths of an EUR, divided by 1,000,000 to obtain
+        spend.
+    - name: conversions
+      data_type: varchar
+      description: Raw export value as text. Attributed conversions; may be fractional.
+    - name: conversions_value
+      data_type: varchar
+      description: Raw export value as text. Attributed conversions value in EUR.
+    - name: ctr
+      data_type: varchar
+      description: Raw export value as text. Click-through rate as a fraction between zero and one in this normalized
+        demo export.
+    - name: average_cpc
+      data_type: varchar
+      description: Raw export value as text. Average cpc reported by the source.
+    - name: average_cpm
+      data_type: varchar
+      description: Raw export value as text. Average cpm reported by the source.
+    - name: all_conversions
+      data_type: varchar
+      description: Raw export value as text. Attributed all conversions; may be fractional.
+    - name: cost_per_conversion
+      data_type: varchar
+      description: Raw export value as text. Cost per conversion reported by the source.
+    - name: currency
+      data_type: varchar
+      description: Raw export value as text. Currency code. Stripe uses lowercase; acquisition and product reports
+        use uppercase EUR. No FX conversion is modeled.
+  loader: demo_generator_and_airflow_parquet_extract
+  meta:
+    owner: data-platform
+    synthetic: true

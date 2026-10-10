@@ -1,0 +1,32 @@
+version: 2
+sources:
+- name: landing
+  schema: landing
+  description: Synthetic public dataset; raw columns retain their export representation.
+  tables:
+  - name: refunds
+    description: Raw refunds; one text-typed Parquet landing file.
+    columns:
+    - name: refund_id
+      data_type: varchar
+      description: Raw export value as text. Refund identifier; refund objects store a positive amount returned
+        to the customer.
+    - name: payment_id
+      data_type: varchar
+      description: Raw export value as text. Payment id within the originating source.
+    - name: order_id
+      data_type: varchar
+      description: Raw export value as text. Order id within the originating source.
+    - name: created_at
+      data_type: varchar
+      description: Raw export value as text. Object creation timestamp in UTC, parsed from the source representation.
+    - name: amount
+      data_type: varchar
+      description: Raw export value as text. Amount in the original currency major units.
+    - name: reason
+      data_type: varchar
+      description: Raw export value as text. Reason reported by the source.
+  loader: demo_generator_and_airflow_parquet_extract
+  meta:
+    owner: data-platform
+    synthetic: true

@@ -1,0 +1,50 @@
+version: 2
+models:
+- name: stg_posthog__people
+  description: Synthetic PostHog person-property export, one row per distinct_id; $set and $set_once provenance
+    is retained.
+  config:
+    contract:
+      enforced: true
+    meta:
+      owner: data-platform
+    tags:
+    - staging
+    - posthog
+  data_tests:
+  - dbt_expectations.expect_table_row_count_to_be_between:
+      min_value: 1
+  columns:
+  - name: distinct_id
+    description: PostHog person identifier; events retain the original identity.
+    data_type: varchar
+    data_tests:
+    - not_null
+    - unique
+  - name: created_at
+    description: Object creation timestamp in UTC, parsed from the source representation.
+    data_type: timestamp
+    data_tests:
+    - not_null
+  - name: account_id
+    description: Product account identifier used to join billing and product analytics.
+    data_type: varchar
+    data_tests:
+    - relationships:
+        to: '{{ ref(''stg_product__accounts'') }}'
+        field: account_id
+  - name: account_plan
+    description: Account plan reported by the source.
+    data_type: varchar
+  - name: seats
+    description: Seats reported by the source.
+    data_type: integer
+  - name: country
+    description: Uppercase two-letter country code in the normalized demo export.
+    data_type: varchar
+  - name: signup_source
+    description: Signup source reported by the source.
+    data_type: varchar
+  - name: signed_up_at
+    description: UTC first signup timestamp retained in PostHog $set_once properties.
+    data_type: timestamp

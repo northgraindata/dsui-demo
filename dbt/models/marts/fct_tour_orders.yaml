@@ -1,11 +1,4 @@
 version: 2
-sources:
-  - name: tour_landing
-    schema: landing
-    description: Nine deterministic orders extracted from PostgreSQL for the developer investigation.
-    tables:
-      - name: demo_tour_orders
-        description: Checkout status changes from paid to completed over three fixed days.
 models:
   - name: fct_tour_orders
     description: Intentional paid-only regression for the developer tour; separate from commerce reporting.

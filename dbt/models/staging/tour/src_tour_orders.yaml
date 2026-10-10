@@ -1,0 +1,18 @@
+version: 2
+sources:
+  - name: tour_landing
+    schema: landing
+    loader: airflow
+    description: Nine deterministic orders extracted from PostgreSQL for the developer investigation.
+    tables:
+      - name: demo_tour_orders
+        description: Checkout status changes from paid to completed over three fixed days.
+        columns:
+          - name: order_id
+            description: Stable synthetic order identifier.
+          - name: ordered_on
+            description: Synthetic order date.
+          - name: status
+            description: Checkout status emitted by the operational source.
+          - name: amount
+            description: Synthetic revenue in whole currency units.

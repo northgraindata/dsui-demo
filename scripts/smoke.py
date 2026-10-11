@@ -25,7 +25,7 @@ def request(url, path, payload=None, headers=None, expected=200):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--url', default='http://localhost:4192')
+    parser.add_argument('--url', default='http://localhost:4192/demo')
     parser.add_argument('--env-file', type=Path, default=ROOT/'.env')
     parser.add_argument('--allow-health-warning', action='append', default=[], metavar='SERVICE')
     args = parser.parse_args()

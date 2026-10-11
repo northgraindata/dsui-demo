@@ -93,7 +93,7 @@ def main():
             time.sleep(2)
         addresses[name]=address(name)
         print(name+' healthy',flush=True)
-    print('Demo: http://localhost:'+values.get('DSUI_PORT','4192'),flush=True)
+    print('Demo: http://localhost:'+values.get('DSUI_PORT','4192')+'/demo/',flush=True)
 
 
 if __name__ == '__main__':

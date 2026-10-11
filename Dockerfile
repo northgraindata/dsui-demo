@@ -3,7 +3,8 @@
 # installed-plugin browserBundle support needed by the code-repository plugin.
 FROM oven/bun:1.3.12 AS build
 WORKDIR /src
-ARG DSUI_REF=5dd9161d5592e0c9ab3fd28d5af99370a0202062
+ARG DSUI_REF=d765fa3a87d489f14da54abd67f3b8c39e6515e8
+ARG DSUI_WEB_BASE_PATH=/demo/
 ADD https://codeload.github.com/northgraindata/dsui/tar.gz/${DSUI_REF} /tmp/source.tar.gz
 RUN tar -xzf /tmp/source.tar.gz --strip-components=1 -C /src
 RUN bun install --frozen-lockfile --ignore-scripts
@@ -13,7 +14,7 @@ RUN ln -s /src/packages/server/node_modules /src/packages/demo-plugins/node_modu
     bun build /src/packages/demo-plugins/demo-auth/src/index.ts --bundle --target bun --format esm --outfile /out/plugins/demo-auth.mjs && \
     bun build /src/packages/demo-plugins/demo-guide/src/index.ts --bundle --target bun --format esm --outfile /out/plugins/demo-guide.mjs
 RUN bun test /src/packages/demo-plugins/demo-auth/src /src/packages/demo-plugins/demo-guide/src
-RUN bun run --filter @northgraindata/dsui-web build
+RUN DSUI_WEB_BASE_PATH=${DSUI_WEB_BASE_PATH} bun run --filter @northgraindata/dsui-web build
 RUN mkdir -p /out/data /out/plugins && \
     bun build packages/server/src/main.ts --bundle --target bun --minify --outfile /out/server.mjs && \
     bun build packages/plugin-code-repository/src/plugin.ts --bundle --target bun --format esm --outfile /out/plugins/code-repository.mjs && \
@@ -47,6 +48,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends python3 python3
     chown -R bun:bun /opt/dbt /opt/demo-dbt && \
     rm -rf /var/lib/apt/lists/*
 ENV DSUI_HOST=0.0.0.0 DSUI_PORT=4192 DSUI_DATA_DIR=/data \
+    DSUI_WEB_BASE_PATH=/demo/ \
     DSUI_WEB_ROOT=/app/web DSUI_RUNTIME_PLUGINS=/app/plugins \
     DSUI_SDK_ROOT=/app/sdk DSUI_VERSION=0.1.1 \
     BUN_INSTALL_CACHE_DIR=/data/.bun-cache \

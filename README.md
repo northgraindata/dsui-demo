@@ -64,6 +64,7 @@ Provisioning, ingestion and Airflow metadata use separate roles.
 
 DSUI, SDKs and adapters are built together from the immutable source commit and lockfile in `Dockerfile`.
 The old published DSUI release predates the plugin APIs this demo needs.
+The public instance is served below `/demo/`; the DSUI web bundle and runtime plugin URLs use that same prefix.
 MinIO is built from a pinned, checksum-verified source archive because the old official image is unavailable.
 
 The generator marks the initial seed ready only after database writes and file exports finish.
@@ -222,7 +223,7 @@ CI uploads the dbt manifest, results, catalog and runtime logs for review.
 ```sh
 python scripts/smoke.py
 # macOS, after starting with the Apple helper:
-python scripts/smoke.py --url http://localhost:4192
+python scripts/smoke.py --url http://localhost:4192/demo
 ```
 
 Run the same data checks locally without backing services:

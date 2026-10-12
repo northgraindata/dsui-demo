@@ -43,6 +43,13 @@ plugins:
       disclaimer: Every service, row and number here is synthetic. Nothing you do
         reaches a real system, and the data resets on a schedule.
     package: /app/plugins/demo-guide.mjs
+  health:
+    source: git
+    repository: northgraindata/dsui
+    ref: d765fa3a87d489f14da54abd67f3b8c39e6515e8
+    path: packages/plugin-health
+    config:
+      timeoutMs: 5000
 services:
 - id: snapshot
   adapter: duckdb

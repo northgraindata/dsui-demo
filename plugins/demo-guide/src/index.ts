@@ -25,9 +25,10 @@ export type Step = {
 	readonly target: string;
 	readonly next?: string;
 	readonly starts?: readonly { readonly label: string; readonly step: string }[];
-	readonly sdk?: string;
+	readonly sdk?: readonly string[];
 	readonly sdkFor?: string;
 	readonly code?: string;
+	readonly codeLabel?: string;
 };
 
 /** Short product tours, with optional SDK examples beside the first real example. */
@@ -38,6 +39,15 @@ export const STEPS: readonly Step[] = [
 		body: "These cards show the systems connected to this demo. Open a service to see the pages and tools its adapter provides.",
 		path: "/",
 		target: "dashboard.services",
+		next: "home-health-slot",
+	},
+	{
+		id: "home-health-slot",
+		title: "Plugins can add to shared pages",
+		body: "The health score on a service card comes from the Health plugin. It adds this small gauge in a dashboard slot that DSUI makes available to plugins.",
+		path: "/",
+		target: "dashboard.service.snapshot",
+		sdk: ["health-plugin-config-sdk", "plugin-authoring-sdk"],
 		next: "home-services",
 	},
 	{
@@ -53,7 +63,16 @@ export const STEPS: readonly Step[] = [
 			{ label: "Explore Airflow →", step: "airflow-overview" },
 			{ label: "Explore storage →", step: "storage-overview" },
 		],
-		sdk: "plugin-slot-sdk",
+	},
+	{
+		id: "health-plugin-config-sdk",
+		title: "Add a plugin from GitHub",
+		body: "Plugins can be loaded from a GitHub repository and configured in dsui.yaml. The Health plugin adds a service score to the dashboard. Set enabled to false to pause it, or remove its entry to disconnect it.",
+		path: "/",
+		target: "dashboard.service.snapshot",
+		code: `health:\n  source: git\n  repository: northgraindata/dsui\n  ref: d765fa3a87d489f14da54abd67f3b8c39e6515e8\n  path: packages/plugin-health\n  config:\n    timeoutMs: 5000\n\n# To pause it later:\n# health:\n#   enabled: false`,
+		codeLabel: "dsui.yaml",
+		sdkFor: "home-health-slot",
 	},
 	{
 		id: "dbt-overview",
@@ -61,7 +80,7 @@ export const STEPS: readonly Step[] = [
 		body: "This workspace brings the project’s pages into DSUI. Use the navigation to browse models, check their dependencies and review recent runs.",
 		path: "/services/transformations",
 		target: "service.workspace.header",
-		sdk: "dbt-page-sdk",
+		sdk: ["dbt-page-sdk", "dbt-action-sdk"],
 		next: "dbt-navigation",
 	},
 	{
@@ -73,6 +92,16 @@ export const STEPS: readonly Step[] = [
 		code: `export const modelsPage = definePage({\n  path: "/models",\n  render: () => [\n    PageHeader({ title: "Models" }),\n    Table({\n      source: models(),\n      columns: [\n        { id: "name", label: "Model" },\n        { id: "materialized", label: "Materialized" },\n      ],\n    }),\n  ],\n});`,
 		sdkFor: "dbt-overview",
 		next: "dbt-navigation",
+	},
+	{
+		id: "dbt-action-sdk",
+		title: "An action runs a task",
+		body: "The dbt overview has a Run dbt build button. The adapter defines that operation as an action and binds it to a shared Button component. DSUI handles the request and displays the result.",
+		path: "/services/transformations",
+		target: "service.workspace.content",
+		code: `Button({\n  label: "Run dbt build",\n  action: runBuild({}),\n});`,
+		codeLabel: "From the dbt adapter",
+		sdkFor: "dbt-overview",
 	},
 	{
 		id: "dbt-navigation",
@@ -88,7 +117,7 @@ export const STEPS: readonly Step[] = [
 		body: "This table shows the models dbt found in the project. Choose one to see its SQL and the models it depends on.",
 		path: "/services/transformations/models",
 		target: "dbt.models.table",
-		sdk: "dbt-resource-sdk",
+		sdk: ["dbt-resource-sdk"],
 		next: "dbt-model",
 	},
 	{
@@ -97,7 +126,8 @@ export const STEPS: readonly Step[] = [
 		body: "The adapter reads model details from dbt’s manifest through a resource named models. The page passes that resource to Table; the Adapter SDK renders the rows and provides shared table features.",
 		path: "/services/transformations/models",
 		target: "dbt.models.table",
-		code: `Table({\n  source: models(),\n  columns: [\n    { id: "name", label: "Model" },\n    { id: "materialized", label: "Materialized" },\n  ],\n});`,
+		code: `const models = defineResource({\n  id: "models",\n  query: (_input, context) => readModels(context),\n});\n\nTable({\n  source: models(),\n  columns: modelColumns,\n});`,
+		codeLabel: "Simplified Adapter SDK example",
 		sdkFor: "dbt-models",
 	},
 	{
@@ -113,7 +143,7 @@ export const STEPS: readonly Step[] = [
 		body: "Use this page to ask questions of the data in DuckDB. The query editor and results stay together, so it is easy to change a query and compare the output.",
 		path: "/services/snapshot/query",
 		target: "query.editor",
-		sdk: "duckdb-query-sdk",
+		sdk: ["duckdb-query-sdk"],
 	},
 	{
 		id: "duckdb-query-sdk",
@@ -162,13 +192,14 @@ export const STEPS: readonly Step[] = [
 		target: "s3.object.demo_tour_orders.parquet",
 	},
 	{
-		id: "plugin-slot-sdk",
-		title: "The guide is a plugin too",
-		body: "Plugins add features to places DSUI makes available. This guide adds a launcher through a sidebar slot and places tips over the page you are viewing. The plugin owns the content; DSUI positions the overlay.",
+		id: "plugin-authoring-sdk",
+		title: "A small plugin can add a slot",
+		body: "A plugin can add its own content at a place DSUI exposes. This example adds a badge to dashboard service cards, like the Health plugin adds a gauge. DSUI keeps the page layout; the plugin supplies the contribution.",
 		path: "/",
-		target: "dashboard.services",
-		code: `registry.slot(defineSlot({\n  id: "demo-guide-sidebar",\n  slot: "sidebar.profile",\n  render: () => Button({\n    label: "Explore the demo",\n    overlay: "tour-home-start",\n  }),\n}));`,
-		sdkFor: "home-services",
+		target: "dashboard.service.snapshot",
+		code: `export default definePlugin({\n  metadata: { id: "hello", name: "Hello", version: "1.0.0", apiVersion: 1 },\n  setup(registry) {\n    registry.slot(defineSlot({\n      id: "hello-service-card",\n      slot: "dashboard.service-card.trailing",\n      render: () => Badge({ label: "Hello" }),\n    }));\n  },\n});`,
+		codeLabel: "Plugin SDK",
+		sdkFor: "home-health-slot",
 	},
 ];
 
@@ -197,11 +228,18 @@ function renderStep(step: Step) {
 					variant: "secondary",
 				}),
 			);
-		if (step.sdk)
+		for (const sdkStep of step.sdk ?? [])
 			controls.push(
 				Button({
-					label: "See how this works",
-					overlay: `tour-${step.sdk}`,
+					label:
+						sdkStep === "health-plugin-config-sdk"
+							? "See the plugin config"
+							: sdkStep === "plugin-authoring-sdk"
+								? "Create a plugin"
+								: sdkStep === "dbt-action-sdk"
+									? "See the action"
+									: "See how this works",
+					overlay: `tour-${sdkStep}`,
 					variant: "secondary",
 				}),
 			);
@@ -223,7 +261,7 @@ function renderStep(step: Step) {
 				...(step.code
 					? [
 							CodeBlock({
-								label: "Example",
+								label: step.codeLabel ?? "Example",
 								value: step.code,
 								language: "text",
 							}),

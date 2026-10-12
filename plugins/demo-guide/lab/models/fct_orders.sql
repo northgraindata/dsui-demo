@@ -1,4 +1,4 @@
 -- The correction accepts both successful terminal statuses.
-select order_id, ordered_on, status, amount
+select order_id, ordered_on, status, cast(amount as integer) as amount
 from read_parquet('{{ env_var("TOUR_ORDERS_PARQUET") }}')
 where status in ('paid', 'completed')

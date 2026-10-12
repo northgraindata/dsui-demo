@@ -46,7 +46,7 @@ plugins:
   health:
     source: git
     repository: northgraindata/dsui
-    ref: d765fa3a87d489f14da54abd67f3b8c39e6515e8
+    ref: 32bc1cf433304411dbfadb5741fa8510c947c5eb
     path: packages/plugin-health
     config:
       timeoutMs: 5000

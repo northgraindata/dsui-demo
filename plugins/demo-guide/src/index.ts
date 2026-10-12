@@ -73,7 +73,7 @@ export const STEPS: readonly Step[] = [
 		body: "Plugins can be loaded from a GitHub repository and configured in dsui.yaml. The Health plugin adds a service score to the dashboard. Set enabled to false to pause it, or remove its entry to disconnect it.",
 		path: "/",
 		target: "dashboard.service.snapshot",
-		code: `health:\n  source: git\n  repository: northgraindata/dsui\n  ref: d765fa3a87d489f14da54abd67f3b8c39e6515e8\n  path: packages/plugin-health\n  config:\n    timeoutMs: 5000\n\n# To pause it later:\n# health:\n#   enabled: false`,
+		code: `health:\n  source: git\n  repository: northgraindata/dsui\n  ref: 32bc1cf433304411dbfadb5741fa8510c947c5eb\n  path: packages/plugin-health\n  config:\n    timeoutMs: 5000\n\n# To pause it later:\n# health:\n#   enabled: false`,
 		codeLabel: "dsui.yaml",
 		sdkFor: "home-health-slot",
 	},

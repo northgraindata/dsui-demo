@@ -3,6 +3,7 @@ import {
 	Card,
 	CodeBlock,
 	Flex,
+	Link,
 	type PageNode,
 } from "@northgraindata/dsui-adapter-sdk";
 import { definePlugin, defineSlot } from "@northgraindata/dsui-plugin-sdk";
@@ -29,6 +30,7 @@ export type Step = {
 	readonly sdkFor?: string;
 	readonly code?: string;
 	readonly codeLabel?: string;
+	readonly githubStar?: boolean;
 };
 
 /** Short product tours, with optional SDK examples beside the first real example. */
@@ -63,6 +65,7 @@ export const STEPS: readonly Step[] = [
 			{ label: "Explore Airflow →", step: "airflow-overview" },
 			{ label: "Explore storage →", step: "storage-overview" },
 		],
+		next: "dsui-value",
 	},
 	{
 		id: "health-plugin-config-sdk",
@@ -136,6 +139,7 @@ export const STEPS: readonly Step[] = [
 		body: "The model page shows its SQL and dependencies together. This helps you see what the model does and which upstream models it relies on.",
 		path: "/services/transformations/models/model.dsui_demo.fct_tour_orders",
 		target: "dbt.model.source",
+		next: "dsui-value",
 	},
 	{
 		id: "duckdb-overview",
@@ -144,6 +148,7 @@ export const STEPS: readonly Step[] = [
 		path: "/services/snapshot/query",
 		target: "query.editor",
 		sdk: ["duckdb-query-sdk"],
+		next: "dsui-value",
 	},
 	{
 		id: "duckdb-query-sdk",
@@ -160,6 +165,7 @@ export const STEPS: readonly Step[] = [
 		body: "PostgreSQL is where this demo’s operational data starts. Open a table to inspect its columns and rows before data moves into the warehouse.",
 		path: "/services/analytics",
 		target: "service.workspace.header",
+		next: "dsui-value",
 	},
 	{
 		id: "airflow-overview",
@@ -175,6 +181,7 @@ export const STEPS: readonly Step[] = [
 		body: "The graph shows which tasks depend on each other and how the selected run finished. Red tasks indicate a failed step; open one to see its logs and details.",
 		path: "/services/orchestration/dags/demo_pipeline?tab=graph",
 		target: "airflow.dag.graph",
+		next: "dsui-value",
 	},
 	{
 		id: "storage-overview",
@@ -190,6 +197,23 @@ export const STEPS: readonly Step[] = [
 		body: "Select a file to see its details. This helps you check whether the expected input or output is present before investigating a later step.",
 		path: "/services/landing/buckets/landing",
 		target: "s3.object.demo_tour_orders.parquet",
+		next: "dsui-value",
+	},
+	{
+		id: "dsui-value",
+		title: "Make DSUI fit your work",
+		body: "DSUI brings your systems together so an AI assistant can use context from across your stack. The most useful additions are the ones tailored to your team: adapters for the systems you use and plugins for your checks and workflows.",
+		path: "/",
+		target: "dashboard.services",
+		next: "dsui-open-source",
+	},
+	{
+		id: "dsui-open-source",
+		title: "Open source, ready to grow with you",
+		body: "Building and maintaining all those integrations yourself can cost tens of thousands of dollars. DSUI gives you a free, open-source foundation to start from. If it looks useful, leave a star to help more builders find it.",
+		path: "/",
+		target: "dashboard.services",
+		githubStar: true,
 	},
 	{
 		id: "plugin-authoring-sdk",
@@ -264,6 +288,20 @@ function renderStep(step: Step) {
 								label: step.codeLabel ?? "Example",
 								value: step.code,
 								language: "text",
+							}),
+						]
+					: []),
+				...(step.githubStar
+					? [
+							Card({
+								title: "Leave a star ⭐",
+								description: "Help DSUI reach more builders.",
+								variant: "subtle",
+								content: Link({
+									href: "https://github.com/northgraindata/dsui",
+									label: "DSUI on GitHub ↗",
+									external: true,
+								}),
 							}),
 						]
 					: []),

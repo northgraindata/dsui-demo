@@ -13,7 +13,25 @@ describe("contextual demo guide", () => {
 			"airflow-overview",
 			"storage-overview",
 		]);
+		expect(home?.next).toBe("dsui-value");
 		expect(plugin.metadata.security).toBeUndefined();
+	});
+
+	test("product tours end with the shared-context and open-source message", () => {
+		for (const id of [
+			"dbt-model",
+			"duckdb-overview",
+			"postgres-overview",
+			"airflow-graph",
+			"storage-file",
+		])
+			expect(STEPS.find((step) => step.id === id)?.next).toBe("dsui-value");
+		expect(STEPS.find((step) => step.id === "dsui-value")?.next).toBe(
+			"dsui-open-source",
+		);
+		expect(STEPS.find((step) => step.id === "dsui-open-source")?.githubStar).toBe(
+			true,
+		);
 	});
 
 	test("SDK examples are optional branches and return to the product tour", () => {

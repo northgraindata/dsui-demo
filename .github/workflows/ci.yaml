@@ -35,6 +35,8 @@ jobs:
           python -m unittest discover -s tests -p 'test_*.py'
       - name: Generate every source at a fixed anchor
         run: python tests/create_landing.py --output "$DEMO_LANDING_DIR"
+      - name: Test the guide's isolated repair against text-typed amounts
+        run: python tests/test_demo_repair.py
       - run: dbt deps --project-dir dbt --profiles-dir dbt
       - name: Build models, enforce contracts and run data tests
         run: |

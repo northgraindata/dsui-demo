@@ -260,8 +260,16 @@ export default definePlugin({
 					new Response(process.stderr).text(),
 					process.exited,
 				]);
-				if (exitCode !== 0)
+				if (exitCode !== 0) {
+					// Plugin errors are intentionally generic at the public API boundary.
+					// Keep the isolated dbt failure diagnosable in the app's server logs.
+					console.error("Demo guide repair dbt build failed", {
+						exitCode,
+						stdout: stdout.slice(-2000),
+						stderr: stderr.slice(-1000),
+					});
 					throw new Error(stderr.trim() || "The isolated repair failed");
+				}
 				return z
 					.object({
 						orders: z.literal(9),

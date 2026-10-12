@@ -9,223 +9,221 @@ import { definePlugin, defineSlot } from "@northgraindata/dsui-plugin-sdk";
 import { z } from "zod";
 
 const configSchema = z.object({
-	title: z.string().default("Debug your data stack · 6–8 minutes"),
+	title: z.string().default("Explore the DSUI demo"),
 	disclaimer: z
 		.string()
 		.default(
-			"Synthetic demo data. The repair runs in an isolated, disposable database.",
+			"Synthetic demo data. This workspace does not connect to customer systems.",
 		),
 });
-
-export const REPORT_SQL = `-- A daily report with a suspicious drop in successful orders.
-SELECT d.ordered_on, count(o.order_id) AS reported_orders,
-       coalesce(sum(o.amount), 0) AS revenue
-FROM (SELECT DISTINCT ordered_on FROM landing.demo_tour_orders) d
-LEFT JOIN marts.fct_tour_orders o USING (ordered_on)
-GROUP BY d.ordered_on ORDER BY d.ordered_on;`;
-export const SOURCE_SQL = `-- Inspect the same orders at their operational source.
-SELECT ordered_on, status, count(*) AS orders, sum(amount) AS revenue
-FROM raw.demo_tour_orders
-GROUP BY ordered_on, status ORDER BY ordered_on, status;`;
-export const VERIFY_SQL = `-- Test the hypothesis against the actual landed input.
-SELECT ordered_on,
-       count(*) FILTER (WHERE status = 'paid') AS old_filter,
-       count(*) FILTER (WHERE status IN ('paid', 'completed')) AS corrected_filter,
-       sum(amount) FILTER (WHERE status IN ('paid', 'completed')) AS revenue
-FROM landing.demo_tour_orders GROUP BY ordered_on ORDER BY ordered_on;`;
-const queryPath = (service: string, sql: string) =>
-	`/services/${service}/query?sql=${encodeURIComponent(sql)}`;
 
 export type Step = {
 	readonly id: string;
 	readonly title: string;
-	readonly minutes: number;
 	readonly body: string;
 	readonly path: string;
 	readonly target: string;
-	readonly runNext?: string;
-	readonly repair?: boolean;
+	readonly next?: string;
+	readonly starts?: readonly { readonly label: string; readonly step: string }[];
+	readonly sdk?: string;
+	readonly sdkFor?: string;
 	readonly code?: string;
 };
 
-/** One investigation, grouped by screen so results remain visible between steps. */
+/** Short product tours, with optional SDK examples beside the first real example. */
 export const STEPS: readonly Step[] = [
 	{
-		id: "welcome",
-		title: "Your data stack, one workspace",
-		minutes: 0.25,
-		body: "Explore how DSUI brings your databases, pipelines and code together. In 6–8 minutes, you’ll investigate a broken report using the real tools, then see how to extend the workspace with your own plugin.",
+		id: "home-start",
+		title: "Your services in one place",
+		body: "These cards show the systems connected to this demo. Open a service to see the pages and tools its adapter provides.",
 		path: "/",
 		target: "dashboard.services",
+		next: "home-services",
 	},
 	{
-		id: "workspace",
-		title: "Your stack, in one workspace",
-		minutes: 0.5,
-		body: "Each card is a configured connection. PostgreSQL is the operational source; DuckDB is the analytics warehouse. Adapters expose each system’s own pages, resources and actions in this shared UI. Choose a service without losing the rest of the stack.",
+		id: "home-services",
+		title: "Choose what to explore",
+		body: "Choose a service to see its main pages and tools. Each service tour follows the screens you can use there. SDK examples are optional if you want to see how a page is built.",
 		path: "/",
-		target: "dashboard.service.snapshot",
+		target: "dashboard.services",
+		starts: [
+			{ label: "Explore dbt →", step: "dbt-overview" },
+			{ label: "Explore DuckDB →", step: "duckdb-overview" },
+			{ label: "Explore PostgreSQL →", step: "postgres-overview" },
+			{ label: "Explore Airflow →", step: "airflow-overview" },
+			{ label: "Explore storage →", step: "storage-overview" },
+		],
+		sdk: "plugin-slot-sdk",
 	},
 	{
-		id: "ui",
-		title: "How to move around",
-		minutes: 0.5,
-		body: "The workspace header identifies the connection. Its tabs come from the adapter: browse data, run SQL and inspect history. This tour is a plugin contribution above the real application; the same surfaces remain usable while it is open.",
-		path: "/services/snapshot/query",
+		id: "dbt-overview",
+		title: "Your dbt project",
+		body: "This workspace brings the project’s pages into DSUI. Use the navigation to browse models, check their dependencies and review recent runs.",
+		path: "/services/transformations",
+		target: "service.workspace.header",
+		sdk: "dbt-page-sdk",
+		next: "dbt-navigation",
+	},
+	{
+		id: "dbt-page-sdk",
+		title: "A page built with the Adapter SDK",
+		body: "This page was built with just a few lines of ready-made components from the DSUI Adapter SDK.",
+		path: "/services/transformations",
+		target: "service.workspace.content",
+		code: `export const modelsPage = definePage({\n  path: "/models",\n  render: () => [\n    PageHeader({ title: "Models" }),\n    Table({\n      source: models(),\n      columns: [\n        { id: "name", label: "Model" },\n        { id: "materialized", label: "Materialized" },\n      ],\n    }),\n  ],\n});`,
+		sdkFor: "dbt-overview",
+		next: "dbt-navigation",
+	},
+	{
+		id: "dbt-navigation",
+		title: "Browse the project",
+		body: "Choose Models in the navigation to see what dbt found in the project.",
+		path: "/services/transformations",
 		target: "service.workspace.navigation",
+		next: "dbt-models",
 	},
 	{
-		id: "report",
-		title: "Run the report that raised the alert",
-		minutes: 0.5,
-		body: "This prepared query reads a real dbt mart. Click Run in the highlighted editor. The guide will advance only after the query succeeds; you can edit the SQL and rerun it yourself.",
-		path: queryPath("snapshot", REPORT_SQL),
-		target: "query.editor",
-		runNext: "report-result",
+		id: "dbt-models",
+		title: "A list from the project manifest",
+		body: "This table shows the models dbt found in the project. Choose one to see its SQL and the models it depends on.",
+		path: "/services/transformations/models",
+		target: "dbt.models.table",
+		sdk: "dbt-resource-sdk",
+		next: "dbt-model",
 	},
 	{
-		id: "report-result",
-		title: "Three orders become zero",
-		minutes: 0.5,
-		body: "The report falls from 3 orders and 300 revenue to 1 and 90, then zero. A successful SQL statement does not prove the numbers are right. Next, inspect the records at their source before blaming the warehouse.",
-		path: queryPath("snapshot", REPORT_SQL),
-		target: "query.results",
+		id: "dbt-resource-sdk",
+		title: "Where this table gets its data",
+		body: "The adapter reads model details from dbt’s manifest through a resource named models. The page passes that resource to Table; the Adapter SDK renders the rows and provides shared table features.",
+		path: "/services/transformations/models",
+		target: "dbt.models.table",
+		code: `Table({\n  source: models(),\n  columns: [\n    { id: "name", label: "Model" },\n    { id: "materialized", label: "Materialized" },\n  ],\n});`,
+		sdkFor: "dbt-models",
 	},
 	{
-		id: "source",
-		title: "Check PostgreSQL, not a second dashboard",
-		minutes: 0.5,
-		body: "Run the source query. The PostgreSQL adapter uses a bounded, read-only connection here. We are inspecting the same nine tour orders, kept separate from the larger generated dataset.",
-		path: queryPath("analytics", SOURCE_SQL),
-		target: "query.editor",
-		runNext: "source-result",
-	},
-	{
-		id: "source-result",
-		title: "The orders exist. Their status changed",
-		minutes: 0.5,
-		body: "There are still three successful orders each day. On October 9, completed appears alongside paid; on October 10 it replaces it. We have a concrete hypothesis: a transformation still accepts only the old status.",
-		path: queryPath("analytics", SOURCE_SQL),
-		target: "query.results",
-	},
-	{
-		id: "model",
-		title: "Find the assumption in the dbt model",
-		minutes: 0.75,
-		body: "The dbt adapter exposes the model source and dependencies. This model reads landing.demo_tour_orders, then filters WHERE status = 'paid'. That line silently drops completed orders. The bug is deliberately confined to this tour model.",
+		id: "dbt-model",
+		title: "Inspect a model",
+		body: "The model page shows its SQL and dependencies together. This helps you see what the model does and which upstream models it relies on.",
 		path: "/services/transformations/models/model.dsui_demo.fct_tour_orders",
 		target: "dbt.model.source",
 	},
 	{
-		id: "pipeline",
-		title: "A green pipeline can publish wrong numbers",
-		minutes: 0.5,
-		body: "Open demo_pipeline to inspect its actual task graph and run history: extract, build and publish. Those tasks can succeed while a SQL filter excludes valid business records. DSUI gives you execution context alongside the data; task success and data correctness are separate checks.",
+		id: "duckdb-overview",
+		title: "Run SQL against the warehouse",
+		body: "Use this page to ask questions of the data in DuckDB. The query editor and results stay together, so it is easy to change a query and compare the output.",
+		path: "/services/snapshot/query",
+		target: "query.editor",
+		sdk: "duckdb-query-sdk",
+	},
+	{
+		id: "duckdb-query-sdk",
+		title: "A query page from the SDK",
+		body: "The Adapter SDK provides the query editor and results view. An adapter supplies the connection and query action; the shared components handle the interface.",
+		path: "/services/snapshot/query",
+		target: "query.results",
+		code: `QueryEditor({\n  language: "sql",\n  action: runQuery,\n  explorer: { source: databases() },\n});`,
+		sdkFor: "duckdb-overview",
+	},
+	{
+		id: "postgres-overview",
+		title: "Browse the source data",
+		body: "PostgreSQL is where this demo’s operational data starts. Open a table to inspect its columns and rows before data moves into the warehouse.",
+		path: "/services/analytics",
+		target: "service.workspace.header",
+	},
+	{
+		id: "airflow-overview",
+		title: "See how a workflow ran",
+		body: "Open a workflow to see its tasks, their order and the result of each task. A successful task means that step ran; check the data too to confirm the result is useful.",
+		path: "/services/orchestration",
+		target: "service.workspace.navigation",
+		next: "airflow-graph",
+	},
+	{
+		id: "airflow-graph",
+		title: "Follow the task graph",
+		body: "The graph shows which tasks depend on each other and how the selected run finished. Red tasks indicate a failed step; open one to see its logs and details.",
 		path: "/services/orchestration/dags/demo_pipeline?tab=graph",
 		target: "airflow.dag.graph",
 	},
 	{
-		id: "landing",
-		title: "Check the input boundary",
-		minutes: 0.5,
-		body: "The landing bucket contains demo_tour_orders.parquet, extracted from PostgreSQL and published by the same pipeline. The highlighted row shows its size, format and modification time. Keeping input artifacts makes it possible to distinguish an extraction problem from a model problem.",
+		id: "storage-overview",
+		title: "Find the files workflows use",
+		body: "Object storage holds files that workflows read or produce. Open a bucket to see the files and inspect their type, size and last update.",
+		path: "/services/landing",
+		target: "service.workspace.header",
+		next: "storage-file",
+	},
+	{
+		id: "storage-file",
+		title: "Inspect a stored file",
+		body: "Select a file to see its details. This helps you check whether the expected input or output is present before investigating a later step.",
 		path: "/services/landing/buckets/landing",
 		target: "s3.object.demo_tour_orders.parquet",
 	},
 	{
-		id: "verify",
-		title: "Prove the corrected predicate",
-		minutes: 0.5,
-		body: "Back in DuckDB, compare the old filter with paid OR completed on the landed records. Run the query. This checks the hypothesis against the input before changing any production-like mart.",
-		path: queryPath("snapshot", VERIFY_SQL),
-		target: "query.editor",
-		runNext: "repair",
-	},
-	{
-		id: "repair",
-		title: "Test the fix in an isolated dbt build",
-		minutes: 0.75,
-		body: "The corrected filter restores 3 orders and 300 revenue every day. Now build the corrected model and run its regression test in a disposable database. The test requires nine orders and 900 total revenue. This action rebuilds only a tiny plugin-owned project.",
-		path: queryPath("snapshot", VERIFY_SQL),
-		target: "query.results",
-		repair: true,
-	},
-	{
-		id: "fixed",
-		title: "The repair built and the regression test passed",
-		minutes: 0.25,
-		body: "dbt built the corrected model and verified all nine orders and 900 revenue. The disposable database has been removed; the original mart remains available so the next visitor can reproduce the same issue. You followed source → model → run → input → verified fix in one workspace.",
-		path: queryPath("snapshot", VERIFY_SQL),
-		target: "query.results",
-	},
-	{
-		id: "plugins",
-		title: "Extend the workspace around your tools",
-		minutes: 0.5,
-		body: "The code-repository plugin adds source-code context beside Airflow. It owns its code and contributes through published slots. This guide uses the same Plugin SDK: a sidebar launcher and overlay contributions. Your team can add runbooks, ownership or review workflows this way.",
-		path: "/plugins/code-repository/overview",
-		target: "app.content",
-	},
-	{
-		id: "build",
-		title: "Build the missing piece of your stack",
-		minutes: 0.5,
-		body: "Use Adapter SDK to expose a system’s connections, resources, actions and pages. Use Plugin SDK to add behavior across the workspace through published extension points. The host handles rendering and positioning; your extension owns its logic. Explore the live screens, then build an adapter or plugin for your team.",
-		path: "/plugins/code-repository/overview",
-		target: "app.content",
-		code: `// Plugin SDK: contribute to a published host surface.
-registry.slot(defineSlot({
-  id: 'runbook', slot: 'service.workspace.after-header',
-  render: () => Card({
-    title: 'Team runbook', description: 'Deploy, debug and recover.',
-  }),
-}));`,
+		id: "plugin-slot-sdk",
+		title: "The guide is a plugin too",
+		body: "Plugins add features to places DSUI makes available. This guide adds a launcher through a sidebar slot and places tips over the page you are viewing. The plugin owns the content; DSUI positions the overlay.",
+		path: "/",
+		target: "dashboard.services",
+		code: `registry.slot(defineSlot({\n  id: "demo-guide-sidebar",\n  slot: "sidebar.profile",\n  render: () => Button({\n    label: "Explore the demo",\n    overlay: "tour-home-start",\n  }),\n}));`,
+		sdkFor: "home-services",
 	},
 ];
 
 export function stepPresentation(step: Step) {
-	return { path: step.path, target: step.target };
+	return {
+		path: step.path,
+		target: step.target,
+	};
 }
-function renderStep(step: Step, index: number) {
+function renderStep(step: Step) {
 	const controls: PageNode[] = [];
-	const previous = STEPS[index - 1];
-	const next = STEPS[index + 1];
-	if (previous)
+	if (step.sdkFor) {
 		controls.push(
 			Button({
-				label: "← Back",
-				overlay: `tour-${previous.id}`,
-				variant: "secondary",
-			}),
-		);
-	if (step.repair)
-		controls.push(
-			Button({
-				label: "Build & test the isolated fix",
-				action: { actionId: "repair", input: {} },
-				successOverlay: "tour-fixed",
+				label: "Continue tour →",
+				overlay: `tour-${step.sdkFor}`,
 				variant: "primary",
 			}),
 		);
-	else if (next && !step.runNext)
-		controls.push(
-			Button({
-				label: index === 0 ? "Explore DSUI →" : "Next →",
-				overlay: `tour-${next.id}`,
-				variant: "primary",
-			}),
-		);
+	} else {
+		for (const start of step.starts ?? [])
+			controls.push(
+				Button({
+					label: start.label,
+					overlay: `tour-${start.step}`,
+					variant: "secondary",
+				}),
+			);
+		if (step.sdk)
+			controls.push(
+				Button({
+					label: "See how this works",
+					overlay: `tour-${step.sdk}`,
+					variant: "secondary",
+				}),
+			);
+		if (step.next)
+			controls.push(
+				Button({
+					label: "Next →",
+					overlay: `tour-${step.next}`,
+					variant: "primary",
+				}),
+			);
+	}
 	return [
 		Card({
 			title: step.title,
 			description: step.body,
-			badge: `${index + 1} / ${STEPS.length}`,
 			variant: "subtle",
 			content: [
 				...(step.code
 					? [
 							CodeBlock({
-								label: "Your own plugin",
+								label: "Example",
 								value: step.code,
 								language: "text",
 							}),
@@ -287,36 +285,26 @@ export default definePlugin({
 				order: 10,
 				render: () =>
 					Button({
-						label: "Start demo tour",
-						overlay: "tour-welcome",
+						label: "Explore the demo",
+						overlay: "tour-home-start",
 						variant: "secondary",
 					}),
 			}),
 		);
-		STEPS.forEach((step, index) =>
+		STEPS.forEach((step) =>
 			registry.slot(
 				defineSlot({
 					id: `tour-${step.id}`,
 					slot: "overlay",
-					order: index,
+					order: STEPS.indexOf(step),
 					presentation: {
 						mode: "anchored",
 						...stepPresentation(step),
 						highlight: true,
 						dock: "bottom-right",
-						label: "Developer tour",
-						...(step.runNext
-							? {
-									advanceOn: {
-										serviceId: step.path.split("/")[2],
-										target: "query.results",
-										event: "success",
-										overlay: `tour-${step.runNext}`,
-									},
-								}
-							: {}),
+						label: "DSUI tour",
 					},
-					render: () => renderStep(step, index),
+					render: () => renderStep(step),
 				}),
 			),
 		);

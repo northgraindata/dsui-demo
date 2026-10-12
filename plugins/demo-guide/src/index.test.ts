@@ -1,56 +1,45 @@
 import { describe, expect, test } from "bun:test";
-import plugin, {
-	REPORT_SQL,
-	SOURCE_SQL,
-	STEPS,
-	VERIFY_SQL,
-	stepPresentation,
-} from "./index.js";
+import plugin, { STEPS, stepPresentation } from "./index.js";
 
-describe("developer investigation", () => {
-	test("introduces the UI before querying DuckDB and ends with extension authoring", () => {
-		expect(STEPS.slice(0, 4).map((step) => step.id)).toEqual([
-			"welcome",
-			"workspace",
-			"ui",
-			"report",
+describe("contextual demo guide", () => {
+	test("starts on the dashboard and links to a tour for every service", () => {
+		expect(STEPS[0]?.id).toBe("home-start");
+		const home = STEPS.find((step) => step.id === "home-services");
+		expect(home?.starts?.map((start) => start.step)).toEqual([
+			"dbt-overview",
+			"duckdb-overview",
+			"postgres-overview",
+			"airflow-overview",
+			"storage-overview",
 		]);
-		expect(STEPS.at(-1)?.id).toBe("build");
-		expect(
-			STEPS.reduce((total, step) => total + step.minutes, 0),
-		).toBeGreaterThanOrEqual(6);
-		expect(
-			STEPS.reduce((total, step) => total + step.minutes, 0),
-		).toBeLessThanOrEqual(8);
 		expect(plugin.metadata.security).toBeUndefined();
 	});
-	test("query steps advance to their result without navigating or losing the editor state", () => {
-		for (const step of STEPS.filter((step) => step.runNext)) {
-			const next = STEPS.find((candidate) => candidate.id === step.runNext);
-			expect(next).toBeDefined();
-			expect(next?.path).toBe(step.path);
-			expect(next?.target).toBe("query.results");
+
+	test("SDK examples are optional branches and return to the product tour", () => {
+		for (const step of STEPS.filter((candidate) => candidate.sdk)) {
+			const sdk = STEPS.find((candidate) => candidate.id === step.sdk);
+			expect(sdk).toBeDefined();
+			expect(sdk?.sdkFor).toBe(step.id);
+			expect(sdk?.code).toBeTruthy();
 		}
 	});
-	test("prepared queries use the actual fixture and distinguish source from warehouse", () => {
-		expect(REPORT_SQL).toContain("marts.fct_tour_orders");
-		expect(SOURCE_SQL).toContain("raw.demo_tour_orders");
-		expect(VERIFY_SQL).toContain("'paid', 'completed'");
+
+	test("navigation references existing steps and each overlay has a path and target", () => {
 		for (const step of STEPS) {
+			if (step.next) expect(STEPS.some((item) => item.id === step.next)).toBe(true);
+			if (step.sdk) expect(STEPS.some((item) => item.id === step.sdk)).toBe(true);
+			if (step.sdkFor)
+				expect(STEPS.some((item) => item.id === step.sdkFor)).toBe(true);
+			for (const start of step.starts ?? [])
+				expect(STEPS.some((item) => item.id === start.step)).toBe(true);
 			const presentation = stepPresentation(step);
 			expect(presentation.path.startsWith("/")).toBe(true);
 			expect(presentation.path.startsWith("//")).toBe(false);
-			if (step.path.includes("?sql="))
-				expect(
-					new URL(step.path, "http://localhost").searchParams.get("sql"),
-				).toBeTruthy();
+			expect(presentation.target.length).toBeGreaterThan(0);
 		}
 	});
-	test("stable unique contributions show actual content after UI orientation", () => {
+
+	test("contribution ids are stable and unique", () => {
 		expect(new Set(STEPS.map((step) => step.id)).size).toBe(STEPS.length);
-		for (const step of STEPS.slice(3)) {
-			expect(step.target).not.toContain("service.workspace.page.");
-			expect(step.body.length).toBeGreaterThan(40);
-		}
 	});
 });

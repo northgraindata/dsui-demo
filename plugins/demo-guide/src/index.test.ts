@@ -1,82 +1,65 @@
 import { describe, expect, test } from "bun:test";
-import plugin, { STEPS, stepPresentation } from "./index.js";
+import plugin, { renderStep, STEPS, stepPresentation } from "./index.js";
 
-describe("contextual demo guide", () => {
-	test("starts on the dashboard and links to a tour for every service", () => {
+function overlayLinks(value: unknown): string[] {
+	if (Array.isArray(value)) return value.flatMap(overlayLinks);
+	if (typeof value !== "object" || value === null) return [];
+	return Object.entries(value).flatMap(([key, child]) =>
+		key === "overlay" && typeof child === "string"
+			? [child]
+			: overlayLinks(child),
+	);
+}
+
+describe("linear demo guide", () => {
+	test("navigation visits every step in order without branches", () => {
+		for (const [index, step] of STEPS.entries()) {
+			const expected = [STEPS[index - 1], STEPS[index + 1]]
+				.filter((adjacent) => adjacent !== undefined)
+				.map((adjacent) => `tour-${adjacent.id}`);
+			expect(overlayLinks(renderStep(step))).toEqual(expected);
+		}
 		expect(STEPS[0]?.id).toBe("home-start");
-		expect(STEPS[1]?.id).toBe("home-health-slot");
-		const home = STEPS.find((step) => step.id === "home-services");
-		expect(home?.starts?.map((start) => start.step)).toEqual([
-			"dbt-overview",
-			"duckdb-overview",
-			"postgres-overview",
-			"airflow-overview",
-			"storage-overview",
-		]);
-		expect(home?.next).toBe("dsui-value");
+		expect(STEPS.at(-1)?.githubStar).toBe(true);
 		expect(plugin.metadata.security).toBeUndefined();
 	});
-
-	test("product tours end with the shared-context and open-source message", () => {
-		for (const id of [
-			"dbt-model",
-			"duckdb-overview",
-			"postgres-overview",
-			"airflow-graph",
-			"storage-file",
-		])
-			expect(STEPS.find((step) => step.id === id)?.next).toBe("dsui-value");
-		expect(STEPS.find((step) => step.id === "dsui-value")?.next).toBe(
-			"dsui-open-source",
-		);
-		expect(STEPS.find((step) => step.id === "dsui-open-source")?.githubStar).toBe(
-			true,
-		);
-	});
-
-	test("SDK examples are optional branches and return to the product tour", () => {
-		for (const step of STEPS.filter((candidate) => candidate.sdk)) {
-			for (const sdkId of step.sdk ?? []) {
-				const sdk = STEPS.find((candidate) => candidate.id === sdkId);
-				expect(sdk).toBeDefined();
-				expect(sdk?.sdkFor).toBe(step.id);
-				expect(sdk?.code).toBeTruthy();
-			}
+	test("SDK steps immediately follow the interface they explain", () => {
+		for (const [product, sdk] of [
+			["duckdb-overview", "duckdb-query-sdk"],
+			["dbt-models", "dbt-resource-sdk"],
+			["dbt-overview", "dbt-action-sdk"],
+			["home-health-slot", "plugin-authoring-sdk"],
+		]) {
+			const index = STEPS.findIndex((step) => step.id === product);
+			expect(STEPS[index + 1]?.id).toBe(sdk);
+			expect(STEPS[index + 1]?.path).toBe(STEPS[index]?.path);
+			expect(STEPS[index + 1]?.code).toBeTruthy();
 		}
-		expect(STEPS.find((step) => step.id === "dbt-resource-sdk")?.code).toContain(
-			"defineResource",
-		);
+		expect(
+			STEPS.find((step) => step.id === "dbt-resource-sdk")?.code,
+		).toContain("defineResource");
 		expect(STEPS.find((step) => step.id === "dbt-action-sdk")?.code).toContain(
 			"runBuild",
 		);
 		expect(
 			STEPS.find((step) => step.id === "plugin-authoring-sdk")?.code,
 		).toContain("dashboard.service-card.trailing");
-		expect(
-			STEPS.find((step) => step.id === "health-plugin-config-sdk")?.code,
-		).toContain("repository: northgraindata/dsui");
-		expect(
-			STEPS.find((step) => step.id === "health-plugin-config-sdk")?.code,
-		).toContain("enabled: false");
 	});
-
-	test("navigation references existing steps and each overlay has a path and target", () => {
+	test("Health example uses the installed bundles and shows how to disable it", () => {
+		const example = STEPS.find(
+			(step) => step.id === "health-plugin-config-sdk",
+		)?.code;
+		expect(example).toContain("package: /app/plugins/health.mjs");
+		expect(example).toContain("browserBundle: /app/plugins/health.browser.mjs");
+		expect(example).toContain("enabled: false");
+	});
+	test("overlay paths and targets are valid and ids are unique", () => {
+		expect(new Set(STEPS.map((step) => step.id)).size).toBe(STEPS.length);
 		for (const step of STEPS) {
-			if (step.next) expect(STEPS.some((item) => item.id === step.next)).toBe(true);
-			for (const sdkId of step.sdk ?? [])
-				expect(STEPS.some((item) => item.id === sdkId)).toBe(true);
-			if (step.sdkFor)
-				expect(STEPS.some((item) => item.id === step.sdkFor)).toBe(true);
-			for (const start of step.starts ?? [])
-				expect(STEPS.some((item) => item.id === start.step)).toBe(true);
 			const presentation = stepPresentation(step);
 			expect(presentation.path.startsWith("/")).toBe(true);
 			expect(presentation.path.startsWith("//")).toBe(false);
 			expect(presentation.target.length).toBeGreaterThan(0);
 		}
-	});
-
-	test("contribution ids are stable and unique", () => {
-		expect(new Set(STEPS.map((step) => step.id)).size).toBe(STEPS.length);
 	});
 });

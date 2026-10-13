@@ -63,7 +63,7 @@ DSUI connects to PostgreSQL as a dedicated reader with no write grants and a 30-
 Provisioning, ingestion and Airflow metadata use separate roles.
 
 DSUI, SDKs and adapters are built together from the immutable source commit and lockfile in `Dockerfile`.
-The old published DSUI release predates the plugin APIs this demo needs.
+The pinned revision is DSUI `v0.2.8`. Health is bundled in the image from that GitHub revision, including its browser components. This avoids downloading the full monorepo at startup, which exceeds the runtime plugin archive limit.
 The public instance is served below `/demo/`; the DSUI web bundle and runtime plugin URLs use that same prefix.
 MinIO is built from a pinned, checksum-verified source archive because the old official image is unavailable.
 
@@ -85,7 +85,7 @@ Landing data is materialized inside DuckDB so that published snapshots remain re
 ├── airflow/               # orchestration: extract, dbt, publish
 ├── plugins/
 │   ├── demo-auth/        # anonymous operator, secret-holder owner
-│   └── demo-guide/       # developer investigation with contextual overlays
+│   └── demo-guide/       # step-by-step product and SDK tour
 └── scripts/
     └── reset.sh          # reseed the dataset
 ```
@@ -223,7 +223,7 @@ CI uploads the dbt manifest, results, catalog and runtime logs for review.
 ```sh
 python scripts/smoke.py
 # macOS, after starting with the Apple helper:
-python scripts/smoke.py --url http://localhost:4192/demo
+python scripts/smoke.py --url http://localhost:4192
 ```
 
 Run the same data checks locally without backing services:

@@ -17,6 +17,8 @@ RUN bun test /src/packages/demo-plugins/demo-auth/src /src/packages/demo-plugins
 RUN DSUI_WEB_BASE_PATH=${DSUI_WEB_BASE_PATH} bun run --filter @northgraindata/dsui-web build
 RUN mkdir -p /out/data /out/plugins && \
     bun build packages/server/src/main.ts --bundle --target bun --minify --outfile /out/server.mjs && \
+    bun build packages/plugin-health/src/plugin.ts --bundle --target bun --format esm --outfile /out/plugins/health.mjs && \
+    bun build packages/plugin-health/src/browser.tsx --bundle --target browser --format esm --outfile /out/plugins/health.browser.mjs && \
     bun build packages/plugin-code-repository/src/plugin.ts --bundle --target bun --format esm --outfile /out/plugins/code-repository.mjs && \
     bun build packages/plugin-code-repository/src/browser.tsx --bundle --target browser --format esm --outfile /out/plugins/code-repository.browser.mjs && \
     bun -e "import { prepareSdk } from './packages/server/src/adapters/sdk.ts'; await prepareSdk('packages', '/app/sdk', '0.1.1');"

@@ -15,6 +15,8 @@ RUN ln -s /src/packages/server/node_modules /src/packages/demo-plugins/node_modu
     bun build /src/packages/demo-plugins/demo-guide/src/index.ts --bundle --target bun --format esm --outfile /out/plugins/demo-guide.mjs
 RUN bun test /src/packages/demo-plugins/demo-auth/src /src/packages/demo-plugins/demo-guide/src
 RUN DSUI_WEB_BASE_PATH=${DSUI_WEB_BASE_PATH} bun run --filter @northgraindata/dsui-web build
+RUN cp packages/demo-plugins/demo-auth/visitor.js apps/web/dist/demo-visitor.js && \
+    bun -e 'const path = "apps/web/dist/index.html"; const html = await Bun.file(path).text(); const script = `<script src="${process.env.DSUI_WEB_BASE_PATH}demo-visitor.js"></script>`; if (!html.includes("</head>")) throw new Error("DSUI web index has no </head>"); await Bun.write(path, html.replace("</head>", `${script}</head>`));'
 RUN mkdir -p /out/data /out/plugins && \
     bun build packages/server/src/main.ts --bundle --target bun --minify --outfile /out/server.mjs && \
     bun build packages/plugin-code-repository/src/plugin.ts --bundle --target bun --format esm --outfile /out/plugins/code-repository.mjs && \

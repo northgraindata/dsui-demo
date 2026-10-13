@@ -102,14 +102,22 @@ concern and here nobody signs in:
 
 | Visitor | Role | Can |
 | --- | --- | --- |
-| anonymous | `operator` | browse everything, run queries, trigger DAGs and dbt |
-| anonymous, `allowExecution: false` | `viewer` | read only |
+| browser with a `dsui_demo_visitor` cookie | `operator` | browse everything, run queries, trigger DAGs and dbt |
+| caller without a valid visitor cookie | `operator` | a fresh conversation identity for each request |
+| any visitor, `allowExecution: false` | `viewer` | read only |
 | presents `DEMO_ADMIN_SECRET` as the `x-demo-admin` header or the `dsui_demo_admin` cookie | `owner` | everything, including service management |
 
 `operator` withholds `manage`, so a stranger cannot create or delete a service
 or change configuration. Those grants are a hard ceiling in the host's
 `auth.ts`, so no plugin can widen them back. The secret is compared in constant
 time after hashing, and an unset secret matches nothing.
+
+The web bundle initializes a random, first-party `dsui_demo_visitor` cookie
+before the DSUI app starts. The auth plugin hashes it into the visitor's
+principal ID, which namespaces agent conversations per browser. The cookie
+contains no account or personal information; clearing it starts a fresh chat
+history. Requests without a valid cookie receive a one-request identity rather
+than sharing a fallback conversation namespace.
 
 The plugin declares `security: true` and is configured `critical: true`, so the
 host refuses to install it rather than starting the server without it. Failing

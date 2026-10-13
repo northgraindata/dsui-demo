@@ -27,6 +27,9 @@ import type {
  */
 
 const COOKIE_NAME = "dsui_demo_admin";
+const VISITOR_COOKIE_NAME = "dsui_demo_visitor";
+const VISITOR_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /**
  * Constant-time comparison that does not leak the secret's length.
@@ -46,9 +49,31 @@ function readCookie(header: string | null, name: string): string | null {
   if (!header) return null;
   for (const part of header.split(";")) {
     const [key, ...rest] = part.trim().split("=");
-    if (key === name) return decodeURIComponent(rest.join("="));
+    if (key === name) {
+      try {
+        return decodeURIComponent(rest.join("="));
+      } catch {
+        return null;
+      }
+    }
   }
   return null;
+}
+
+/** Give each browser its own agent storage namespace without collecting identity. */
+function visitorPrincipalId(request: Request): string {
+  const visitorId = readCookie(
+    request.headers.get("cookie"),
+    VISITOR_COOKIE_NAME,
+  );
+  // The app creates this cookie before making API calls. A caller without one
+  // gets a fresh identity per request, so direct API requests cannot fall back
+  // to a shared anonymous chat history.
+  const identity = visitorId && VISITOR_ID_PATTERN.test(visitorId)
+    ? visitorId
+    : crypto.randomUUID();
+  const digest = createHash("sha256").update(identity, "utf8").digest("hex");
+  return `demo-visitor-${digest}`;
 }
 
 const configSchema = z.object({
@@ -85,7 +110,7 @@ export default definePlugin({
         }
 
         return {
-          id: "anonymous",
+          id: visitorPrincipalId(request),
           role: config.allowExecution ? "operator" : "viewer",
           attributes: { demo: true },
         };

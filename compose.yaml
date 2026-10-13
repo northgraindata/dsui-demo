@@ -9,6 +9,7 @@ services:
       DSUI_CONFIG: /etc/dsui/dsui.yaml
       DSUI_MASTER_KEY: ${DSUI_MASTER_KEY:?set DSUI_MASTER_KEY in .env}
       DEMO_ADMIN_SECRET: ${DEMO_ADMIN_SECRET:?set DEMO_ADMIN_SECRET in .env}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       DSUI_HOST: 0.0.0.0
       DSUI_PORT: 4192
       DEMO_LANDING_DIR: /out/landing

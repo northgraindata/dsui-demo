@@ -3,6 +3,7 @@ import { definePlugin } from "@northgraindata/dsui-plugin-sdk";
 import { z } from "zod";
 import type {
   PluginAuthenticationProvider,
+  PluginAuthorizationProvider,
   PluginPrincipal,
 } from "@northgraindata/dsui-plugin-sdk";
 
@@ -30,6 +31,11 @@ const COOKIE_NAME = "dsui_demo_admin";
 const VISITOR_COOKIE_NAME = "dsui_demo_visitor";
 const VISITOR_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const ACTIONS_PER_MINUTE = 10;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
 
 /**
  * Constant-time comparison that does not leak the secret's length.
@@ -99,6 +105,7 @@ export default definePlugin({
   },
   configSchema,
   setup(registry, config) {
+    const actionRequests = new Map<string, number[]>();
     const provider: PluginAuthenticationProvider = {
       authenticate(request): PluginPrincipal {
         const presented =
@@ -118,5 +125,46 @@ export default definePlugin({
     };
 
     registry.authentication(provider);
+    const authorization: PluginAuthorizationProvider = {
+      authorize({ principal, permission, resource }) {
+        if (principal.id === "demo-owner") return true;
+        if (permission !== "execute") return true;
+        if (resource?.type !== "service") return false;
+        // Public visitors can run the read-only source query and the demo DAG.
+        // Every other action, including DuckDB and S3 mutations, stays private.
+        const actionInput = resource.actionInput;
+        const triggerInputIsSafe =
+          isRecord(actionInput) &&
+          Object.keys(actionInput).every(
+            (key) => key === "dagId" || key === "conf",
+          ) &&
+          typeof actionInput.dagId === "string" &&
+          ["demo_pipeline", "daily_ecommerce_load"].includes(actionInput.dagId) &&
+          (actionInput.conf === undefined ||
+            (isRecord(actionInput.conf) &&
+              Object.keys(actionInput.conf).length === 0));
+        const allowedAction =
+          (resource.id === "analytics" && resource.actionId === "run-query") ||
+          (resource.id === "orchestration" &&
+            resource.actionId === "trigger-dag" &&
+            triggerInputIsSafe);
+        if (!allowedAction) return false;
+
+        const now = Date.now();
+        const recent = (actionRequests.get(principal.id) ?? []).filter(
+          (timestamp) => now - timestamp < 60_000,
+        );
+        if (recent.length >= ACTIONS_PER_MINUTE) return false;
+        recent.push(now);
+        while (actionRequests.size >= 10_000) {
+          const oldest = actionRequests.keys().next().value;
+          if (!oldest) break;
+          actionRequests.delete(oldest);
+        }
+        actionRequests.set(principal.id, recent);
+        return true;
+      },
+    };
+    registry.authorization(authorization);
   },
 });

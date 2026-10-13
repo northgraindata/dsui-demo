@@ -102,10 +102,22 @@ concern and here nobody signs in:
 
 | Visitor | Role | Can |
 | --- | --- | --- |
-| browser with a `dsui_demo_visitor` cookie | `operator` | browse everything, run queries, trigger DAGs and dbt |
-| caller without a valid visitor cookie | `operator` | a fresh conversation identity for each request |
+| browser with a `dsui_demo_visitor` cookie | `operator` | browse everything; run source queries and trigger DAGs (10 actions/minute) |
+| caller without a valid visitor cookie | `operator` | a fresh conversation identity for each request; same action allowlist |
 | any visitor, `allowExecution: false` | `viewer` | read only |
-| presents `DEMO_ADMIN_SECRET` as the `x-demo-admin` header or the `dsui_demo_admin` cookie | `owner` | everything, including service management |
+| maintainer with the admin secret | `owner` | all capabilities |
+
+The demo agent is configured with `OPENROUTER_API_KEY` in the DSUI container.
+Without the key, the agent shows setup instructions and cannot send prompts. It
+uses OpenRouter's free-model router by default, keeps each
+visitor's conversation under that browser's isolated principal, and cannot
+execute actions. Agent requests are limited per visitor and to eight concurrent
+turns per server process. Public deployments should also apply an IP-based
+Cloudflare rate limits to `POST /demo/api/v1/plugins/ai-agent/procedures/send`
+and `POST /demo/api/v1/services/*/actions/*` (or the same paths without `/demo`
+when the proxy strips the prefix);
+browser cookies can be cleared, so application identity limits are not a
+replacement for an edge limit.
 
 `operator` withholds `manage`, so a stranger cannot create or delete a service
 or change configuration. Those grants are a hard ceiling in the host's

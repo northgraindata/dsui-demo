@@ -50,6 +50,18 @@ plugins:
     enabled: true
     config:
       timeoutMs: 5000
+  ai-agent:
+    package: /app/plugins/ai-agent.mjs
+    browserBundle: /app/plugins/ai-agent.browser.mjs
+    config:
+      model:
+        provider: openrouter
+        id: openrouter/free
+        apiKey: ${OPENROUTER_API_KEY}
+      allowActionExecution: false
+      maxToolCalls: 12
+      timeoutSeconds: 90
+      requestsPerMinute: 5
 services:
 - id: snapshot
   adapter: duckdb

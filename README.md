@@ -102,14 +102,36 @@ concern and here nobody signs in:
 
 | Visitor | Role | Can |
 | --- | --- | --- |
-| anonymous | `operator` | browse everything, run queries, trigger DAGs and dbt |
-| anonymous, `allowExecution: false` | `viewer` | read only |
-| presents `DEMO_ADMIN_SECRET` as the `x-demo-admin` header or the `dsui_demo_admin` cookie | `owner` | everything, including service management |
+| browser with a `dsui_demo_visitor` cookie | `operator` | browse everything; run source queries and trigger DAGs (10 per visitor, 30 total per minute) |
+| caller without a valid visitor cookie | `operator` | a fresh conversation identity for each request; same allowlist and global limit |
+| any visitor, `allowExecution: false` | `viewer` | read only |
+| maintainer with the admin secret | `owner` | all capabilities |
+
+The demo agent is configured with `OPENROUTER_API_KEY` in the DSUI container.
+Without the key, the agent shows setup instructions and cannot send prompts. It
+uses [OpenRouter's free-model router](https://openrouter.ai/openrouter/free) by
+default, keeps each
+visitor's conversation under that browser's isolated principal, and cannot
+execute actions. Agent requests are limited to five per visitor and 30 total per
+minute, with at most eight concurrent turns per server process. Public
+deployments should also apply IP-based Cloudflare rate limits to
+`POST /demo/api/v1/plugins/ai-agent/procedures/send`
+and `POST /demo/api/v1/services/*/actions/*` (or the same paths without `/demo`
+when the proxy strips the prefix);
+browser cookies can be cleared, so application identity limits are not a
+replacement for an edge limit.
 
 `operator` withholds `manage`, so a stranger cannot create or delete a service
 or change configuration. Those grants are a hard ceiling in the host's
 `auth.ts`, so no plugin can widen them back. The secret is compared in constant
 time after hashing, and an unset secret matches nothing.
+
+The web bundle initializes a random, first-party `dsui_demo_visitor` cookie
+before the DSUI app starts. The auth plugin hashes it into the visitor's
+principal ID, which namespaces agent conversations per browser. The cookie
+contains no account or personal information; clearing it starts a fresh chat
+history. Requests without a valid cookie receive a one-request identity rather
+than sharing a fallback conversation namespace.
 
 The plugin declares `security: true` and is configured `critical: true`, so the
 host refuses to install it rather than starting the server without it. Failing

@@ -3,7 +3,7 @@
 # installed-plugin browserBundle support needed by the code-repository plugin.
 FROM oven/bun:1.3.12 AS build
 WORKDIR /src
-ARG DSUI_REF=32bc1cf433304411dbfadb5741fa8510c947c5eb
+ARG DSUI_REF=851d1bb790e5b77b6820fbb4b8ab8017992a3480
 ARG DSUI_WEB_BASE_PATH=/demo/
 ADD https://codeload.github.com/northgraindata/dsui/tar.gz/${DSUI_REF} /tmp/source.tar.gz
 RUN tar -xzf /tmp/source.tar.gz --strip-components=1 -C /src
@@ -12,9 +12,13 @@ COPY plugins /src/packages/demo-plugins
 COPY dbt /src/demo-dbt
 RUN ln -s /src/packages/server/node_modules /src/packages/demo-plugins/node_modules && \
     bun build /src/packages/demo-plugins/demo-auth/src/index.ts --bundle --target bun --format esm --outfile /out/plugins/demo-auth.mjs && \
-    bun build /src/packages/demo-plugins/demo-guide/src/index.ts --bundle --target bun --format esm --outfile /out/plugins/demo-guide.mjs
+    bun build /src/packages/demo-plugins/demo-guide/src/index.ts --bundle --target bun --format esm --outfile /out/plugins/demo-guide.mjs && \
+    bun build /src/packages/plugin-ai-agent/src/plugin.ts --bundle --target bun --format esm --outfile /out/plugins/ai-agent.mjs && \
+    bun build /src/packages/plugin-ai-agent/src/browser.tsx --bundle --target browser --format esm --outfile /out/plugins/ai-agent.browser.mjs
 RUN bun test /src/packages/demo-plugins/demo-auth/src /src/packages/demo-plugins/demo-guide/src
 RUN DSUI_WEB_BASE_PATH=${DSUI_WEB_BASE_PATH} bun run --filter @northgraindata/dsui-web build
+RUN cp packages/demo-plugins/demo-auth/visitor.js apps/web/dist/demo-visitor.js && \
+    bun -e 'const path = "apps/web/dist/index.html"; const html = await Bun.file(path).text(); const script = `<script src="${process.env.DSUI_WEB_BASE_PATH}demo-visitor.js"></script>`; if (!html.includes("</head>")) throw new Error("DSUI web index has no </head>"); await Bun.write(path, html.replace("</head>", `${script}</head>`));'
 RUN mkdir -p /out/data /out/plugins && \
     bun build packages/server/src/main.ts --bundle --target bun --minify --outfile /out/server.mjs && \
     bun build packages/plugin-health/src/plugin.ts --bundle --target bun --format esm --outfile /out/plugins/health.mjs && \
@@ -35,6 +39,7 @@ COPY --chown=bun:bun dsui.yaml /etc/dsui/dsui.yaml
 RUN printf '#!/bin/sh\nexec bun /app/server.mjs "$@"\n' > /usr/local/bin/dsui && chmod +x /usr/local/bin/dsui
 COPY --from=build --chown=bun:bun /out/data /data
 COPY --from=build --chown=bun:bun /out/plugins /app/plugins
+COPY --from=build --chown=bun:bun /out/plugins/ai-agent.browser.mjs /app/plugins/ai-agent.browser.mjs
 COPY --chown=bun:bun plugins/demo-guide/lab /app/plugins/demo-guide/lab
 COPY --from=build --chown=bun:bun /out/plugins/code-repository.browser.mjs /app/plugins/code-repository.browser.mjs
 RUN chown bun:bun /app/plugins/code-repository.browser.mjs

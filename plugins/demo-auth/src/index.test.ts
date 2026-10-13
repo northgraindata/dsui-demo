@@ -14,8 +14,13 @@ function authenticate(
   request: Request,
 ) {
   let captured: { authenticate: (request: Request) => unknown } | undefined;
+  let capturedAuthorization: { authorize: (input: unknown) => boolean } | undefined;
   plugin.setup(
-    { authentication: (provider: typeof captured) => (captured = provider) } as never,
+    {
+      authentication: (provider: typeof captured) => (captured = provider),
+      authorization: (provider: typeof capturedAuthorization) =>
+        (capturedAuthorization = provider),
+    } as never,
     { adminSecret: "", allowExecution: true, ...config } as never,
   );
   if (!captured) throw new Error("plugin registered no authentication provider");
@@ -32,7 +37,7 @@ describe("demo-auth", () => {
     };
     expect(principal.role).toBe("operator");
     expect(principal.role).not.toBe("owner");
-    expect(principal.id).toBe("anonymous");
+    expect(principal.id).toMatch(/^demo-visitor-/);
   });
 
   test("an empty configured secret grants nobody owner", () => {
@@ -93,6 +98,93 @@ describe("demo-auth", () => {
         role: string;
       }).role,
     ).toBe("viewer");
+  });
+
+  test("a browser cookie gets a stable but isolated visitor identity", () => {
+    const identify = (visitorId: string) =>
+      (authenticate(
+        {},
+        new Request("http://demo.local", {
+          headers: { cookie: `dsui_demo_visitor=${visitorId}` },
+        }),
+      ) as { id: string }).id;
+    const first = identify("00000000-0000-4000-8000-000000000001");
+    expect(identify("00000000-0000-4000-8000-000000000001")).toBe(first);
+    expect(identify("00000000-0000-4000-8000-000000000002")).not.toBe(first);
+  });
+
+  test("anonymous action authorization allows only the demo-safe actions", () => {
+    let authorization:
+      | { authorize: (input: unknown) => boolean }
+      | undefined;
+    plugin.setup(
+      {
+        authentication: () => undefined,
+        authorization: (provider: typeof authorization) =>
+          (authorization = provider),
+      } as never,
+      { adminSecret: "", allowExecution: true } as never,
+    );
+    if (!authorization) throw new Error("plugin registered no authorization provider");
+    const visitor = { id: "demo-visitor-1", role: "operator" };
+    const canExecute = (resource: unknown) =>
+      authorization!.authorize({
+        principal: visitor,
+        permission: "execute",
+        resource,
+      });
+    expect(canExecute({ type: "service", id: "analytics", actionId: "run-query" })).toBe(true);
+    expect(
+      canExecute({
+        type: "service",
+        id: "orchestration",
+        actionId: "trigger-dag",
+        actionInput: { dagId: "demo_pipeline" },
+      }),
+    ).toBe(true);
+    expect(
+      canExecute({
+        type: "service",
+        id: "orchestration",
+        actionId: "trigger-dag",
+        actionInput: { dagId: "demo_pipeline", conf: { arbitrary: true } },
+      }),
+    ).toBe(false);
+    expect(
+      canExecute({
+        type: "service",
+        id: "orchestration",
+        actionId: "trigger-dag",
+        actionInput: { dagId: "untrusted_dag" },
+      }),
+    ).toBe(false);
+    expect(canExecute({ type: "service", id: "landing", actionId: "s3-delete-objects" })).toBe(false);
+    expect(canExecute({ type: "service", id: "transformations", actionId: "execute" })).toBe(false);
+    expect(canExecute({ type: "plugin", id: "some-plugin", actionId: "dangerous" })).toBe(false);
+  });
+
+  test("anonymous action authorization applies a process-wide rate limit", () => {
+    let authorization:
+      | { authorize: (input: unknown) => boolean }
+      | undefined;
+    plugin.setup(
+      {
+        authentication: () => undefined,
+        authorization: (provider: typeof authorization) =>
+          (authorization = provider),
+      } as never,
+      { adminSecret: "", allowExecution: true } as never,
+    );
+    if (!authorization) throw new Error("plugin registered no authorization provider");
+    const runQuery = (index: number) =>
+      authorization!.authorize({
+        principal: { id: `visitor-${index}`, role: "operator" },
+        permission: "execute",
+        resource: { type: "service", id: "analytics", actionId: "run-query" },
+      });
+    for (let index = 0; index < 30; index += 1)
+      expect(runQuery(index)).toBe(true);
+    expect(runQuery(30)).toBe(false);
   });
 
   test("declares itself a security plugin", () => {

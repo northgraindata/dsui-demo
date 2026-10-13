@@ -3,6 +3,7 @@ import { definePlugin } from "@northgraindata/dsui-plugin-sdk";
 import { z } from "zod";
 import type {
   PluginAuthenticationProvider,
+  PluginAuthorizationProvider,
   PluginPrincipal,
 } from "@northgraindata/dsui-plugin-sdk";
 
@@ -27,6 +28,15 @@ import type {
  */
 
 const COOKIE_NAME = "dsui_demo_admin";
+const VISITOR_COOKIE_NAME = "dsui_demo_visitor";
+const VISITOR_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const ACTIONS_PER_MINUTE = 10;
+const GLOBAL_ACTIONS_PER_MINUTE = 30;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
 
 /**
  * Constant-time comparison that does not leak the secret's length.
@@ -46,9 +56,31 @@ function readCookie(header: string | null, name: string): string | null {
   if (!header) return null;
   for (const part of header.split(";")) {
     const [key, ...rest] = part.trim().split("=");
-    if (key === name) return decodeURIComponent(rest.join("="));
+    if (key === name) {
+      try {
+        return decodeURIComponent(rest.join("="));
+      } catch {
+        return null;
+      }
+    }
   }
   return null;
+}
+
+/** Give each browser its own agent storage namespace without collecting identity. */
+function visitorPrincipalId(request: Request): string {
+  const visitorId = readCookie(
+    request.headers.get("cookie"),
+    VISITOR_COOKIE_NAME,
+  );
+  // The app creates this cookie before making API calls. A caller without one
+  // gets a fresh identity per request, so direct API requests cannot fall back
+  // to a shared anonymous chat history.
+  const identity = visitorId && VISITOR_ID_PATTERN.test(visitorId)
+    ? visitorId
+    : crypto.randomUUID();
+  const digest = createHash("sha256").update(identity, "utf8").digest("hex");
+  return `demo-visitor-${digest}`;
 }
 
 const configSchema = z.object({
@@ -74,6 +106,8 @@ export default definePlugin({
   },
   configSchema,
   setup(registry, config) {
+    const actionRequests = new Map<string, number[]>();
+    let globalActionRequests: number[] = [];
     const provider: PluginAuthenticationProvider = {
       authenticate(request): PluginPrincipal {
         const presented =
@@ -85,7 +119,7 @@ export default definePlugin({
         }
 
         return {
-          id: "anonymous",
+          id: visitorPrincipalId(request),
           role: config.allowExecution ? "operator" : "viewer",
           attributes: { demo: true },
         };
@@ -93,5 +127,54 @@ export default definePlugin({
     };
 
     registry.authentication(provider);
+    const authorization: PluginAuthorizationProvider = {
+      authorize({ principal, permission, resource }) {
+        if (principal.id === "demo-owner") return true;
+        if (permission !== "execute") return true;
+        if (resource?.type !== "service") return false;
+        // Public visitors can run the read-only source query and the demo DAG.
+        // Every other action, including DuckDB and S3 mutations, stays private.
+        const actionInput = resource.actionInput;
+        const triggerInputIsSafe =
+          isRecord(actionInput) &&
+          Object.keys(actionInput).every(
+            (key) => key === "dagId" || key === "conf",
+          ) &&
+          typeof actionInput.dagId === "string" &&
+          ["demo_pipeline", "daily_ecommerce_load"].includes(actionInput.dagId) &&
+          (actionInput.conf === undefined ||
+            (isRecord(actionInput.conf) &&
+              Object.keys(actionInput.conf).length === 0));
+        const allowedAction =
+          (resource.id === "analytics" && resource.actionId === "run-query") ||
+          (resource.id === "orchestration" &&
+            resource.actionId === "trigger-dag" &&
+            triggerInputIsSafe);
+        if (!allowedAction) return false;
+
+        const now = Date.now();
+        globalActionRequests = globalActionRequests.filter(
+          (timestamp) => now - timestamp < 60_000,
+        );
+        const recent = (actionRequests.get(principal.id) ?? []).filter(
+          (timestamp) => now - timestamp < 60_000,
+        );
+        if (
+          recent.length >= ACTIONS_PER_MINUTE ||
+          globalActionRequests.length >= GLOBAL_ACTIONS_PER_MINUTE
+        )
+          return false;
+        recent.push(now);
+        globalActionRequests.push(now);
+        while (actionRequests.size >= 10_000) {
+          const oldest = actionRequests.keys().next().value;
+          if (!oldest) break;
+          actionRequests.delete(oldest);
+        }
+        actionRequests.set(principal.id, recent);
+        return true;
+      },
+    };
+    registry.authorization(authorization);
   },
 });

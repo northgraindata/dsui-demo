@@ -163,6 +163,30 @@ describe("demo-auth", () => {
     expect(canExecute({ type: "plugin", id: "some-plugin", actionId: "dangerous" })).toBe(false);
   });
 
+  test("anonymous action authorization applies a process-wide rate limit", () => {
+    let authorization:
+      | { authorize: (input: unknown) => boolean }
+      | undefined;
+    plugin.setup(
+      {
+        authentication: () => undefined,
+        authorization: (provider: typeof authorization) =>
+          (authorization = provider),
+      } as never,
+      { adminSecret: "", allowExecution: true } as never,
+    );
+    if (!authorization) throw new Error("plugin registered no authorization provider");
+    const runQuery = (index: number) =>
+      authorization!.authorize({
+        principal: { id: `visitor-${index}`, role: "operator" },
+        permission: "execute",
+        resource: { type: "service", id: "analytics", actionId: "run-query" },
+      });
+    for (let index = 0; index < 30; index += 1)
+      expect(runQuery(index)).toBe(true);
+    expect(runQuery(30)).toBe(false);
+  });
+
   test("declares itself a security plugin", () => {
     // The host refuses to install an authentication plugin without this.
     expect(plugin.metadata.security).toBe(true);

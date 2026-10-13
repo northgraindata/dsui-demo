@@ -32,6 +32,7 @@ const VISITOR_COOKIE_NAME = "dsui_demo_visitor";
 const VISITOR_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ACTIONS_PER_MINUTE = 10;
+const GLOBAL_ACTIONS_PER_MINUTE = 30;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -106,6 +107,7 @@ export default definePlugin({
   configSchema,
   setup(registry, config) {
     const actionRequests = new Map<string, number[]>();
+    let globalActionRequests: number[] = [];
     const provider: PluginAuthenticationProvider = {
       authenticate(request): PluginPrincipal {
         const presented =
@@ -151,11 +153,19 @@ export default definePlugin({
         if (!allowedAction) return false;
 
         const now = Date.now();
+        globalActionRequests = globalActionRequests.filter(
+          (timestamp) => now - timestamp < 60_000,
+        );
         const recent = (actionRequests.get(principal.id) ?? []).filter(
           (timestamp) => now - timestamp < 60_000,
         );
-        if (recent.length >= ACTIONS_PER_MINUTE) return false;
+        if (
+          recent.length >= ACTIONS_PER_MINUTE ||
+          globalActionRequests.length >= GLOBAL_ACTIONS_PER_MINUTE
+        )
+          return false;
         recent.push(now);
+        globalActionRequests.push(now);
         while (actionRequests.size >= 10_000) {
           const oldest = actionRequests.keys().next().value;
           if (!oldest) break;

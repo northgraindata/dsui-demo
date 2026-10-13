@@ -109,11 +109,13 @@ concern and here nobody signs in:
 
 The demo agent is configured with `OPENROUTER_API_KEY` in the DSUI container.
 Without the key, the agent shows setup instructions and cannot send prompts. It
-uses OpenRouter's free-model router by default, keeps each
+uses [OpenRouter's free-model router](https://openrouter.ai/openrouter/free) by
+default, keeps each
 visitor's conversation under that browser's isolated principal, and cannot
 execute actions. Agent requests are limited to five per visitor and 30 total per
-minute, with at most eight concurrent turns per server process. Public deployments should also apply an IP-based
-Cloudflare rate limits to `POST /demo/api/v1/plugins/ai-agent/procedures/send`
+minute, with at most eight concurrent turns per server process. Public
+deployments should also apply IP-based Cloudflare rate limits to
+`POST /demo/api/v1/plugins/ai-agent/procedures/send`
 and `POST /demo/api/v1/services/*/actions/*` (or the same paths without `/demo`
 when the proxy strips the prefix);
 browser cookies can be cleared, so application identity limits are not a

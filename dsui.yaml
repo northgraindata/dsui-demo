@@ -44,10 +44,10 @@ plugins:
         reaches a real system, and the data resets on a schedule.
     package: /app/plugins/demo-guide.mjs
   health:
-    source: git
-    repository: northgraindata/dsui
-    ref: 32bc1cf433304411dbfadb5741fa8510c947c5eb
-    path: packages/plugin-health
+    # Built from the pinned DSUI GitHub revision in Dockerfile.
+    package: /app/plugins/health.mjs
+    browserBundle: /app/plugins/health.browser.mjs
+    enabled: true
     config:
       timeoutMs: 5000
 services:

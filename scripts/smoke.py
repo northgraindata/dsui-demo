@@ -25,7 +25,7 @@ def request(url, path, payload=None, headers=None, expected=200):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--url', default='http://localhost:4192/demo')
+    parser.add_argument('--url', default='http://localhost:4192')
     parser.add_argument('--env-file', type=Path, default=ROOT/'.env')
     parser.add_argument('--allow-health-warning', action='append', default=[], metavar='SERVICE')
     args = parser.parse_args()
@@ -33,6 +33,14 @@ def main():
     assert request(args.url,'/api/v1/auth/me')['role'] == 'operator'
     assert request(args.url,'/api/v1/auth/me',headers={'x-demo-admin':env['DEMO_ADMIN_SECRET']})['role'] == 'owner'
     request(args.url,'/api/v1/services',{},expected=403)
+    catalog = request(args.url, '/api/v1/plugins')
+    health = next((plugin for plugin in catalog['plugins'] if plugin['id'] == 'health'), None)
+    assert health and health['status'] == 'ready', health
+    assert any(slot['pluginId'] == 'health' and slot['slot'] == 'dashboard.service-card.trailing' for slot in catalog['slots']), catalog
+    widgets = request(args.url, '/api/v1/plugins/slots/dashboard.service-card.trailing', {
+        'serviceIds': ['snapshot'], 'pluginId': 'health',
+    })['items']
+    assert len(widgets) == 1 and widgets[0]['nodes'] and not widgets[0].get('error'), widgets
     services = request(args.url,'/api/v1/services')
     assert {service['id'] for service in services} == {'analytics','snapshot','landing','orchestration','transformations'}
     for service in services:

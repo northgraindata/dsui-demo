@@ -63,3 +63,14 @@ describe("linear demo guide", () => {
 		}
 	});
 });
+
+
+test("agent introduction presents capabilities and examples without sending a request", () => {
+	const step = STEPS.find((entry) => entry.id === "ai-agent");
+	if (!step) throw new Error("Missing agent introduction");
+	expect(step.target).toBe("dashboard.services");
+	expect(step.body).toContain("Cmd/Ctrl+J");
+	expect(step.code).toContain("@snapshot");
+	expect(step.code).toContain("@transformations");
+	expect(JSON.stringify(renderStep(step))).not.toContain('"actionId"');
+});

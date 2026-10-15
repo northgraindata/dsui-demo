@@ -371,3 +371,5 @@ See [project review](docs/project-review.md) for remaining deployment checks and
 
 The AI agent is absent because the pinned runtime has no AI agent plugin implementation.
 Historical MRR and month-end subscriber counts require state history; current cohort metrics are labeled in the model documentation.
+
+The demo image pins DSUI `3d0d6eea8bf15c1dbe5bb5bf91babde2f1012a2f` for mount-aware tour navigation and the dbt model-list anchor. The tour also presents the AI agent launcher, service mentions, and example DuckDB/dbt questions without sending a request.

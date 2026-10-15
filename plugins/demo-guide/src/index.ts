@@ -140,6 +140,15 @@ export const STEPS: readonly Step[] = [
 		codeLabel: "dsui.yaml",
 	},
 	{
+		id: "ai-agent",
+		title: "Meet DSUI Agent",
+		body: "Open the agent with the sparkle button in the top bar or Cmd/Ctrl+J after closing this guide. It can discover services, inspect tables and dbt models, check health and explain results. Type @ and choose Analytics warehouse to ask about DuckDB, or dbt project to inspect a model. The examples below use their service IDs. Expand the tools used in a reply to see what the agent inspected. Nothing is sent until you submit a message; messages and retrieved data go to the configured model provider.",
+		path: "/",
+		target: "dashboard.services",
+		codeLabel: "Things to try",
+		code: "@snapshot List the tables in this DuckDB warehouse and explain what the tour dataset contains.\n\n@transformations Read fct_tour_orders and explain which statuses its SQL filter excludes.",
+	},
+	{
 		id: "dsui-value",
 		title: "Make DSUI fit your work",
 		body: "DSUI brings your systems together so an AI assistant can use context from across your stack. The most useful additions are the ones tailored to your team: adapters for the systems you use and plugins for your checks and workflows.",

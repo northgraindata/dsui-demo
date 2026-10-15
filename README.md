@@ -315,8 +315,14 @@ repair action builds only its own corrected dbt project, tests nine orders and
 900 revenue, then removes its disposable database. It preserves the original
 regression so each visitor can reproduce the investigation.
 
-The tour ends with the code-repository plugin and a Plugin SDK contribution
-example. Product code provides generic slots, positioning, named targets and
+The tour introduces the code-repository plugin and a Plugin SDK contribution
+example, then offers an optional handoff to DSUI Agent. The final card presents where to open the agent, what it can do, and example
+questions about the DuckDB warehouse (`@snapshot`) and a dbt model
+(`@transformations`). Visitors close the guide and use the sparkle button
+or Cmd/Ctrl+J. They select the service with `@` and inspect the tools and evidence
+in the response. The tour never sends a model request automatically. The final
+step explains when the agent is unavailable; a configured model is required for
+live replies. Product code provides generic slots, positioning, named targets and
 interaction notifications; the story and repair code live in `plugins/demo-guide`.
 
 The demo image pins DSUI commit `5dd9161d5592e0c9ab3fd28d5af99370a0202062`,

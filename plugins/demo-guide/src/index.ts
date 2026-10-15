@@ -5,7 +5,11 @@ import {
 	Flex,
 	type PageNode,
 } from "@northgraindata/dsui-adapter-sdk";
-import { definePlugin, defineSlot } from "@northgraindata/dsui-plugin-sdk";
+import {
+	definePlugin,
+	defineSlot,
+	type PluginContext,
+} from "@northgraindata/dsui-plugin-sdk";
 import { z } from "zod";
 
 const configSchema = z.object({
@@ -33,6 +37,8 @@ SELECT ordered_on,
        count(*) FILTER (WHERE status IN ('paid', 'completed')) AS corrected_filter,
        sum(amount) FILTER (WHERE status IN ('paid', 'completed')) AS revenue
 FROM landing.demo_tour_orders GROUP BY ordered_on ORDER BY ordered_on;`;
+export const AGENT_PROMPT =
+	"@snapshot List the tables available in this DuckDB warehouse and explain what the tour dataset contains.\n\n@transformations Read the SQL for fct_tour_orders and explain which order statuses its filter excludes.";
 const queryPath = (service: string, sql: string) =>
 	`/services/${service}/query?sql=${encodeURIComponent(sql)}`;
 
@@ -46,6 +52,7 @@ export type Step = {
 	readonly runNext?: string;
 	readonly repair?: boolean;
 	readonly code?: string;
+	readonly codeLabel?: string;
 };
 
 /** One investigation, grouped by screen so results remain visible between steps. */
@@ -181,12 +188,22 @@ registry.slot(defineSlot({
   }),
 }));`,
 	},
+	{
+		id: "agent",
+		title: "Meet DSUI Agent",
+		minutes: 0.5,
+		body: "Open DSUI Agent with the sparkle button in the top bar or Cmd/Ctrl+J after closing this guide. It can find services, inspect tables and dbt models, check service health and help explain results. Type @ and select Analytics warehouse to ask about DuckDB, or dbt to inspect a model. Try the examples below; @snapshot is the warehouse service ID. Expand the tools used in a reply to see what the agent inspected. Nothing is sent until you submit a message; messages and retrieved data go to the configured model provider.",
+		path: "/plugins/code-repository/overview",
+		target: "app.content",
+		code: AGENT_PROMPT,
+		codeLabel: "Things to try",
+	},
 ];
 
 export function stepPresentation(step: Step) {
 	return { path: step.path, target: step.target };
 }
-function renderStep(step: Step, index: number) {
+export function renderStep(step: Step, index: number, agentAvailable = true) {
 	const controls: PageNode[] = [];
 	const previous = STEPS[index - 1];
 	const next = STEPS[index + 1];
@@ -202,7 +219,7 @@ function renderStep(step: Step, index: number) {
 		controls.push(
 			Button({
 				label: "Build & test the isolated fix",
-				action: { actionId: "repair", input: {} },
+				action: { kind: "action-binding", actionId: "repair", input: {} },
 				successOverlay: "tour-fixed",
 				variant: "primary",
 			}),
@@ -215,17 +232,20 @@ function renderStep(step: Step, index: number) {
 				variant: "primary",
 			}),
 		);
+	const unavailableAgent = step.id === "agent" && !agentAvailable;
 	return [
 		Card({
-			title: step.title,
-			description: step.body,
+			title: unavailableAgent ? "You have completed the tour" : step.title,
+			description: unavailableAgent
+				? "DSUI Agent is not enabled or available to you in this workspace. The investigation is complete; close this guide to keep exploring. When the agent plugin is enabled, you can open it from the sparkle button or Cmd/Ctrl+J to ask questions about your services."
+				: step.body,
 			badge: `${index + 1} / ${STEPS.length}`,
 			variant: "subtle",
 			content: [
-				...(step.code
+				...(step.code && !unavailableAgent
 					? [
 							CodeBlock({
-								label: "Your own plugin",
+								label: step.codeLabel ?? "Your own plugin",
 								value: step.code,
 								language: "text",
 							}),
@@ -287,7 +307,7 @@ export default definePlugin({
 		);
 		STEPS.forEach((step, index) =>
 			registry.slot(
-				defineSlot({
+				defineSlot<PluginContext<z.infer<typeof configSchema>>>({
 					id: `tour-${step.id}`,
 					slot: "overlay",
 					order: index,
@@ -308,7 +328,13 @@ export default definePlugin({
 								}
 							: {}),
 					},
-					render: () => renderStep(step, index),
+					render: async ({ context }) =>
+						renderStep(
+							step,
+							index,
+							step.id !== "agent" ||
+								Boolean(await context.plugins.get("ai-agent")),
+						),
 				}),
 			),
 		);

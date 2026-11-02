@@ -118,6 +118,10 @@ services:
       AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'False'
       AIRFLOW__CORE__PARALLELISM: '4'
       AIRFLOW__CORE__MAX_ACTIVE_TASKS_PER_DAG: '2'
+      # One web worker is enough for a demo that one person looks at at a time.
+      # The default is four, each holding about 400 MB.
+      AIRFLOW__WEBSERVER__WORKERS: '1'
+      AIRFLOW__WEBSERVER__WORKER_REFRESH_INTERVAL: '1800'
       AIRFLOW_API_USER: ${AIRFLOW_API_USER:-dsui-demo}
       AIRFLOW_API_PASSWORD: ${AIRFLOW_API_PASSWORD:?set AIRFLOW_API_PASSWORD in .env}
       DATABASE_URL: postgresql://${DEMO_WRITER_USER:-demo_writer}:${DEMO_WRITER_PASSWORD:-dsui-demo-writer}@postgres:5432/${POSTGRES_DB:-analytics}

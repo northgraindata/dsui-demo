@@ -342,10 +342,11 @@ The tour ends with the code-repository plugin and a Plugin SDK contribution
 example. Product code provides generic slots, positioning, named targets and
 interaction notifications; the story and repair code live in `plugins/demo-guide`.
 
-The demo image pins DSUI commit `5dd9161d5592e0c9ab3fd28d5af99370a0202062`,
-which includes the SDK overlay contracts, host changes and the dbt browser
-component fix in [DSUI PR #74](https://github.com/northgraindata/dsui/pull/74).
-Deploy this revision after that product PR has been reviewed. Configuration and
+The demo image pins DSUI release v0.3.2 (commit `80c211ff3f223f3492af3ce9c22f0598d98e2271`)
+and reports that version in its telemetry. It builds the server, the adapters and the
+SDK from that source, so a new release is adopted by changing `DSUI_REF` and
+`DSUI_VERSION` in the `Dockerfile` together.
+Configuration and
 PostgreSQL bootstrap scripts are baked into their images, so remote deployments
 do not depend on runtime bind mounts from the source checkout.
 

@@ -52,8 +52,11 @@ def main():
     assert {service['id'] for service in services} == {'analytics','snapshot','landing','orchestration','transformations'}
     for service in services:
         assert service['health'] == 'healthy' or (service['health'] == 'warning' and service['id'] in args.allow_health_warning), service
+    request(args.url, '/api/v1/services/snapshot/actions/run-query',
+            {'input': {'sql': 'select 1'}}, expected=403)
     for name,sql in (('analytics','select count(*) as n from raw.accounts'),('snapshot','select count(*) as n from marts.fct_revenue_daily')):
-        result=request(args.url,f'/api/v1/services/{name}/actions/run-query',{'input':{'sql':sql}})
+        headers = {'x-demo-admin': env['DEMO_ADMIN_SECRET']} if name == 'snapshot' else None
+        result=request(args.url,f'/api/v1/services/{name}/actions/run-query',{'input':{'sql':sql}},headers=headers)
         assert result['status'] == 'success', result
         result = result['data']
         assert len(result['rows']) == 1 and int(result['rows'][0]['n']) > 0, result

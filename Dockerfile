@@ -3,7 +3,7 @@
 # installed-plugin browserBundle support needed by the code-repository plugin.
 FROM oven/bun:1.3.12 AS build
 WORKDIR /src
-ARG DSUI_REF=80c211ff3f223f3492af3ce9c22f0598d98e2271
+ARG DSUI_REF=dd7012712b3bdaf8b34440a3dee60afa1573ee1c
 ARG DSUI_WEB_BASE_PATH=/demo/
 ADD https://codeload.github.com/northgraindata/dsui/tar.gz/${DSUI_REF} /tmp/source.tar.gz
 RUN tar -xzf /tmp/source.tar.gz --strip-components=1 -C /src
@@ -57,7 +57,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends python3 python3
 ENV DSUI_HOST=0.0.0.0 DSUI_PORT=4192 DSUI_DATA_DIR=/data \
     DSUI_WEB_BASE_PATH=/demo/ \
     DSUI_WEB_ROOT=/app/web DSUI_RUNTIME_PLUGINS=/app/plugins \
-    DSUI_SDK_ROOT=/app/sdk DSUI_VERSION=0.3.2 \
+    DSUI_SDK_ROOT=/app/sdk DSUI_VERSION=0.5.0 \
     BUN_INSTALL_CACHE_DIR=/data/.bun-cache \
     DEMO_LANDING_DIR=/out/landing DEMO_DUCKDB_NEXT=/out/manual/demo.duckdb \
     DBT_SEND_ANONYMOUS_USAGE_STATS=false

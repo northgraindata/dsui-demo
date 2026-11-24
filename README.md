@@ -63,7 +63,7 @@ DSUI connects to PostgreSQL as a dedicated reader with no write grants and a 30-
 Provisioning, ingestion and Airflow metadata use separate roles.
 
 DSUI, SDKs and adapters are built together from the immutable source commit and lockfile in `Dockerfile`.
-The pinned revision is DSUI `v0.2.8`. Health is bundled in the image from that GitHub revision, including its browser components. This avoids downloading the full monorepo at startup, which exceeds the runtime plugin archive limit.
+The pinned revision is DSUI `v0.5.0`. Health is bundled in the image from that GitHub revision, including its browser components. This avoids downloading the full monorepo at startup, which exceeds the runtime plugin archive limit.
 The public instance is served below `/demo/`; the DSUI web bundle and runtime plugin URLs use that same prefix.
 MinIO is built from a pinned, checksum-verified source archive because the old official image is unavailable.
 
@@ -342,7 +342,7 @@ The tour ends with the code-repository plugin and a Plugin SDK contribution
 example. Product code provides generic slots, positioning, named targets and
 interaction notifications; the story and repair code live in `plugins/demo-guide`.
 
-The demo image pins DSUI release v0.3.2 (commit `80c211ff3f223f3492af3ce9c22f0598d98e2271`)
+The demo image pins DSUI release v0.5.0 (commit `dd7012712b3bdaf8b34440a3dee60afa1573ee1c`)
 and reports that version in its telemetry. It builds the server, the adapters and the
 SDK from that source, so a new release is adopted by changing `DSUI_REF` and
 `DSUI_VERSION` in the `Dockerfile` together.
@@ -370,7 +370,4 @@ do not depend on runtime bind mounts from the source checkout.
 See [project review](docs/project-review.md) for remaining deployment checks and modeling limits.
 
 
-The AI agent is absent because the pinned runtime has no AI agent plugin implementation.
 Historical MRR and month-end subscriber counts require state history; current cohort metrics are labeled in the model documentation.
-
-The demo image pins DSUI `c71b16e2c0160411d03b1fc4ac44b2b2f0c09ed3` for mount-aware tour navigation and the dbt model-list anchor. The tour also presents the AI agent launcher, service mentions, and example DuckDB/dbt questions without sending a request.

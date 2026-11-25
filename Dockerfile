@@ -3,7 +3,7 @@
 # installed-plugin browserBundle support needed by the code-repository plugin.
 FROM oven/bun:1.3.12 AS build
 WORKDIR /src
-ARG DSUI_REF=80c211ff3f223f3492af3ce9c22f0598d98e2271
+ARG DSUI_REF=ffddbd907a21b55192474894f9614fe103abb153
 ARG DSUI_WEB_BASE_PATH=/demo/
 ADD https://codeload.github.com/northgraindata/dsui/tar.gz/${DSUI_REF} /tmp/source.tar.gz
 RUN tar -xzf /tmp/source.tar.gz --strip-components=1 -C /src

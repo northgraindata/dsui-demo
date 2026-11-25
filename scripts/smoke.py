@@ -3,6 +3,7 @@ import argparse
 import json
 import platform
 import subprocess
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -37,9 +38,15 @@ def main():
     health = next((plugin for plugin in catalog['plugins'] if plugin['id'] == 'health'), None)
     assert health and health['status'] == 'ready', health
     assert any(slot['pluginId'] == 'health' and slot['slot'] == 'dashboard.service-card.trailing' for slot in catalog['slots']), catalog
-    widgets = request(args.url, '/api/v1/plugins/slots/dashboard.service-card.trailing', {
-        'serviceIds': ['snapshot'], 'pluginId': 'health',
-    })['items']
+    deadline = time.monotonic() + 60
+    widgets = []
+    while time.monotonic() < deadline:
+        widgets = request(args.url, '/api/v1/plugins/slots/dashboard.service-card.trailing', {
+            'serviceIds': ['snapshot'], 'pluginId': 'health',
+        })['items']
+        if len(widgets) == 1 and widgets[0]['nodes'] and not widgets[0].get('error'):
+            break
+        time.sleep(1)
     assert len(widgets) == 1 and widgets[0]['nodes'] and not widgets[0].get('error'), widgets
     services = request(args.url,'/api/v1/services')
     assert {service['id'] for service in services} == {'analytics','snapshot','landing','orchestration','transformations'}
